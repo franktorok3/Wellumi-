@@ -17,6 +17,7 @@ import {
 // Change this to your computer's local network IP when testing on a phone.
 // Do not use localhost on a phone; localhost points to the phone, not this computer.
 const API_BASE_URL = "http://192.168.68.66:3001";
+const LABEL_ANALYSIS_TIMEOUT_MS = 60000;
 
 const colors = {
   cream: '#FBF8F1',
@@ -329,10 +330,13 @@ async function analyzeLabelImage(photo) {
   }
 
   let response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LABEL_ANALYSIS_TIMEOUT_MS);
 
   try {
     response = await fetch(`${API_BASE_URL}/analyze-label`, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -342,7 +346,13 @@ async function analyzeLabelImage(photo) {
       }),
     });
   } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`The label scan took too long after ${LABEL_ANALYSIS_TIMEOUT_MS / 1000} seconds.`);
+    }
+
     throw new Error(`Fetch failed: ${error.message}`);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const responseText = await response.text();
@@ -598,7 +608,7 @@ function ScanScreen({ onBack, onResult }) {
     try {
       setIsCapturing(true);
       const picture = await cameraRef.current.takePictureAsync({
-        quality: 0.85,
+        quality: 0.42,
         skipProcessing: true,
         base64: true,
       });
@@ -625,14 +635,18 @@ function ScanScreen({ onBack, onResult }) {
       const result = await analyzeLabelImage(photo);
       onResult(result);
     } catch (error) {
-      const message =
-        error?.message ||
-        'Wellumi could not read this label right now. Showing a mock summary instead.';
+      const technicalMessage = error?.message || '';
+      const fallbackMessage = technicalMessage.includes('took too long')
+        ? 'The label scan took too long. Showing a mock summary for now.'
+        : 'Wellumi could not read this label right now. Showing a mock summary for now.';
+      const alertMessage = technicalMessage
+        ? `${fallbackMessage}\n\nTechnical detail: ${technicalMessage}`
+        : fallbackMessage;
       console.log('[wellumi-debug] Label analysis failed; using mock summary', {
-        message,
+        message: technicalMessage || fallbackMessage,
       });
-      setAnalysisError(`${message} Showing a mock summary instead.`);
-      Alert.alert('Using mock summary', `${message} Showing a mock summary instead.`);
+      setAnalysisError(alertMessage);
+      Alert.alert('Using mock summary', alertMessage);
       onResult(mockResultSummary);
     } finally {
       setIsAnalyzing(false);

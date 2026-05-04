@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3001;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 
 app.use(cors());
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({ limit: '50mb' }));
 
 function logDebug(message, details) {
   if (details === undefined) {
@@ -63,14 +63,22 @@ function getOutputText(responseJson) {
 }
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, service: 'wellumi-label-analysis' });
+  res.json({
+    ok: true,
+    service: 'wellumi-label-analysis',
+    time: new Date().toISOString(),
+    hasOpenAIKey: Boolean(process.env.OPENAI_API_KEY),
+  });
 });
 
 app.post('/analyze-label', async (req, res) => {
+  const requestStartedAt = Date.now();
+  const requestReceivedAt = new Date().toISOString();
+
   try {
     const { imageBase64, mimeType = 'image/jpeg' } = req.body || {};
 
-    logDebug('POST /analyze-label hit');
+    logDebug('POST /analyze-label hit', { requestReceivedAt });
     logDebug('Request body imageBase64 exists', Boolean(imageBase64));
     logDebug('Request body imageBase64 length', typeof imageBase64 === 'string' ? imageBase64.length : 0);
     logDebug('Request body mimeType', mimeType);
@@ -91,7 +99,11 @@ app.post('/analyze-label', async (req, res) => {
 
     const imageUrl = `data:${mimeType};base64,${imageBase64}`;
 
-    logDebug('OpenAI request starting', { model: OPENAI_MODEL });
+    const openAIStartedAt = Date.now();
+    logDebug('OpenAI request starting', {
+      model: OPENAI_MODEL,
+      elapsedMs: openAIStartedAt - requestStartedAt,
+    });
     const openaiResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -169,9 +181,12 @@ app.post('/analyze-label', async (req, res) => {
     });
 
     const responseJson = await openaiResponse.json();
+    const openAIReturnedAt = Date.now();
     logDebug('OpenAI response received', {
       status: openaiResponse.status,
       ok: openaiResponse.ok,
+      openAIElapsedMs: openAIReturnedAt - openAIStartedAt,
+      totalElapsedMs: openAIReturnedAt - requestStartedAt,
       hasOutputText: typeof responseJson.output_text === 'string',
       outputType: Array.isArray(responseJson.output) ? 'array' : typeof responseJson.output,
       outputLength: Array.isArray(responseJson.output) ? responseJson.output.length : 0,
@@ -211,6 +226,7 @@ app.post('/analyze-label', async (req, res) => {
       questionCount: Array.isArray(parsed.questions_to_ask_a_professional)
         ? parsed.questions_to_ask_a_professional.length
         : 0,
+      totalElapsedMs: Date.now() - requestStartedAt,
     });
     return res.json(parsed);
   } catch (error) {
@@ -218,6 +234,7 @@ app.post('/analyze-label', async (req, res) => {
       name: error.name,
       message: error.message,
       stack: error.stack,
+      totalElapsedMs: Date.now() - requestStartedAt,
     });
     return res.status(500).json({
       error: error.message || 'Unexpected label analysis error.',
