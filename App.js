@@ -88,7 +88,7 @@ const mockResultSummary = {
 function mapAnalysisToResultSummary(analysis) {
   return {
     title: analysis.product_name || mockResultSummary.title,
-    kicker: 'Evidence summary',
+    kicker: 'Label summary',
     detectedLabelText: analysis.detected_label_text || '',
     neutralDisclaimer:
       analysis.neutral_disclaimer ||
@@ -123,21 +123,36 @@ async function analyzeLabelImage(photo) {
     throw new Error('The captured image did not include base64 data. Please retake the photo.');
   }
 
-  const response = await fetch(`${API_BASE_URL}/analyze-label`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      imageBase64: photo.base64,
-      mimeType: 'image/jpeg',
-    }),
-  });
+  let response;
 
-  const payload = await response.json().catch(() => ({}));
+  try {
+    response = await fetch(`${API_BASE_URL}/analyze-label`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        imageBase64: photo.base64,
+        mimeType: 'image/jpeg',
+      }),
+    });
+  } catch (error) {
+    throw new Error(`Fetch failed: ${error.message}`);
+  }
+
+  const responseText = await response.text();
+  let payload = {};
+
+  try {
+    payload = responseText ? JSON.parse(responseText) : {};
+  } catch (error) {
+    payload = {};
+  }
 
   if (!response.ok) {
-    throw new Error(payload.error || 'Wellumi could not read this label right now.');
+    throw new Error(
+      `Backend returned ${response.status}: ${responseText || payload.error || 'No response body'}`
+    );
   }
 
   return mapAnalysisToResultSummary(payload);
@@ -313,6 +328,13 @@ function ScanScreen({ onBack, onResult }) {
   async function usePhoto() {
     if (!photo || isAnalyzing) return;
 
+    console.log('[wellumi-debug] Use Photo tapped', {
+      apiBaseUrl: API_BASE_URL,
+      hasPhoto: Boolean(photo),
+      hasBase64: Boolean(photo?.base64),
+      base64Length: photo?.base64?.length || 0,
+    });
+
     try {
       setIsAnalyzing(true);
       setAnalysisError('');
@@ -322,6 +344,9 @@ function ScanScreen({ onBack, onResult }) {
       const message =
         error?.message ||
         'Wellumi could not read this label right now. Showing a mock summary instead.';
+      console.log('[wellumi-debug] Label analysis failed; using mock summary', {
+        message,
+      });
       setAnalysisError(`${message} Showing a mock summary instead.`);
       Alert.alert('Using mock summary', `${message} Showing a mock summary instead.`);
       onResult(mockResultSummary);
@@ -370,6 +395,7 @@ function ScanScreen({ onBack, onResult }) {
         <View style={styles.cameraHeader}>
           <Text style={styles.cameraTitle}>Review label</Text>
           <Text style={styles.cameraSubtitle}>Use this photo to read the label summary.</Text>
+          <Text style={styles.debugLine}>Connecting to: {API_BASE_URL}</Text>
         </View>
         <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
         {!!analysisError && <Text style={styles.analysisError}>{analysisError}</Text>}
@@ -395,6 +421,7 @@ function ScanScreen({ onBack, onResult }) {
             <Text style={styles.cameraGuideText}>Frame the label clearly</Text>
           </View>
           <View style={styles.capturePanel}>
+            <Text style={styles.debugLineLight}>Connecting to: {API_BASE_URL}</Text>
             <Pressable
               style={({ pressed }) => [
                 styles.captureButton,
@@ -996,6 +1023,19 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 24,
     marginTop: 4,
+  },
+  debugLine: {
+    color: colors.green,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+  },
+  debugLineLight: {
+    color: colors.greenDark,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+    marginBottom: 8,
   },
   cameraPreview: {
     flex: 1,
