@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -30,6 +30,15 @@ const colors = {
   muted: '#6E716D',
   line: '#E9E4DA',
   shadow: '#3A3328',
+};
+
+const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 28,
 };
 
 const scanItems = [
@@ -389,10 +398,27 @@ const tabs = [
 
 const feedFilters = ['All', 'Updates', 'Trends', 'Saved Topics', 'Scans'];
 
+function SplashScreen() {
+  return (
+    <SafeAreaView style={styles.splashScreen}>
+      <StatusBar style="dark" />
+      <View style={styles.splashMark}>
+        <Text style={styles.splashLeaf}>W</Text>
+      </View>
+      <View style={styles.splashBrandRow}>
+        <Text style={styles.splashBrand}>Wellumi</Text>
+        <View style={styles.splashAccentLeaf} />
+      </View>
+      <Text style={styles.splashLine}>Make sense of what you're seeing.</Text>
+    </SafeAreaView>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [query, setQuery] = useState('');
   const [showResult, setShowResult] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const [currentResult, setCurrentResult] = useState(mockResultSummary);
   const [currentResultType, setCurrentResultType] = useState('Scan');
   const [activeFeedFilter, setActiveFeedFilter] = useState('All');
@@ -506,6 +532,15 @@ export default function App() {
 
   const isCameraFlow = activeTab === 'scan' && !showResult;
 
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 1250);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (showSplash) {
+    return <SplashScreen />;
+  }
+
   return (
     <SafeAreaView style={styles.app}>
       <StatusBar style="dark" />
@@ -517,7 +552,7 @@ export default function App() {
 
 function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, recentScans }) {
   const { width } = useWindowDimensions();
-  const tileWidth = Math.max(96, (width - 62) / 3);
+  const tileWidth = Math.max(92, (width - 58) / 3);
 
   function submitSearch() {
     onSearch(query);
@@ -549,7 +584,7 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, rec
         <ActionTile
           width={tileWidth}
           title="Scan label"
-          body="Get clarity in seconds"
+          body="Scan a label"
           dark
           icon="scan"
           onPress={() => onTab('scan')}
@@ -557,14 +592,14 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, rec
         <ActionTile
           width={tileWidth}
           title="Search claim"
-          body="Understand what it means"
+          body="Search a claim"
           icon="search"
           onPress={() => onTab('search')}
         />
         <ActionTile
           width={tileWidth}
           title="My library"
-          body="Your saved insights"
+          body="Saved items"
           icon="book"
           onPress={() => onTab('library')}
         />
@@ -693,7 +728,7 @@ function ScanScreen({ onBack, onResult }) {
         <View style={styles.cameraHeader}>
           <Text style={styles.cameraTitle}>Review label</Text>
           <Text style={styles.cameraSubtitle}>Use this photo to read the label summary.</Text>
-          <Text style={styles.debugLine}>Connecting to: {API_BASE_URL}</Text>
+            <Text style={styles.debugLine} numberOfLines={1}>Dev: {API_BASE_URL}</Text>
         </View>
         <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
         {!!analysisError && <Text style={styles.analysisError}>{analysisError}</Text>}
@@ -719,7 +754,7 @@ function ScanScreen({ onBack, onResult }) {
             <Text style={styles.cameraGuideText}>Frame the label clearly</Text>
           </View>
           <View style={styles.capturePanel}>
-            <Text style={styles.debugLineLight}>Connecting to: {API_BASE_URL}</Text>
+            <Text style={styles.debugLineLight} numberOfLines={1}>Dev: {API_BASE_URL}</Text>
             <Pressable
               style={({ pressed }) => [
                 styles.captureButton,
@@ -771,7 +806,7 @@ function ResultScreen({ result, isSaved, onBack, onSave }) {
       </Pressable>
       <View style={styles.resultHero}>
         <Text style={styles.pill}>{result.kicker || 'Label summary'}</Text>
-        <Text style={styles.resultTitle}>{result.title}</Text>
+        <Text style={styles.resultTitle} numberOfLines={2} ellipsizeMode="tail">{result.title}</Text>
         <Text style={styles.resultBody}>
           {result.neutralDisclaimer ||
             'General information only. Ask a qualified professional for personal guidance.'}
@@ -801,7 +836,7 @@ function LibraryScreen({ items, onOpen }) {
               <Text style={styles.libraryTypeText}>{item.type}</Text>
             </View>
             <View style={styles.libraryText}>
-              <Text style={styles.libraryTitle}>{item.title}</Text>
+              <Text style={styles.libraryTitle} numberOfLines={1} ellipsizeMode="tail">{item.title}</Text>
               <Text style={styles.libraryDescription} numberOfLines={2}>{item.description}</Text>
               <Text style={styles.librarySavedAt}>{item.savedAtLabel}</Text>
             </View>
@@ -857,16 +892,21 @@ function FeedScreen({ cards, activeFilter, onFilter, onOpen }) {
 function ProfileScreen() {
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
-      <ScreenHeader title="Profile" subtitle="Your mock Wellumi settings and preferences." />
+      <ScreenHeader title="Profile" subtitle="Your Wellumi settings and preferences." />
       <View style={styles.profileCard}>
-        <View style={styles.largeProfileBubble}>
-          <Icon name="profile" color={colors.greenDark} size={54} />
+        <View style={styles.profileSummaryRow}>
+          <View style={styles.largeProfileBubble}>
+            <Icon name="profile" color={colors.greenDark} size={34} />
+          </View>
+          <View style={styles.profileSummaryText}>
+            <Text style={styles.profileName}>Wellumi Explorer</Text>
+            <Text style={styles.profileCaption}>Local MVP profile</Text>
+          </View>
         </View>
-        <Text style={styles.profileName}>Wellumi Explorer</Text>
-        <Text style={styles.cardBody}>Saved topics, scan history, and source preferences live here in the MVP.</Text>
       </View>
-      <InfoCard title="Source tone" body="Plain-language summaries with prompts for professional follow-up." />
-      <InfoCard title="Privacy mode" body="Mock data only. No real product photos or health details are stored." />
+      <InfoCard title="Interests" body="Label literacy, saved topics, and source-backed context." />
+      <InfoCard title="Preferences" body="Plain-language summaries with conservative wording." />
+      <InfoCard title="Data & privacy" body="Local MVP state only. No account or database connection yet." />
     </ScrollView>
   );
 }
@@ -882,9 +922,9 @@ function ActionTile({ width, title, body, icon, dark, onPress }) {
       ]}
       onPress={onPress}
     >
-      <Icon name={icon} color={dark ? '#FFFFFF' : colors.green} size={58} />
-      <Text style={[styles.tileTitle, dark && styles.lightText]}>{title}</Text>
-      <Text style={[styles.tileBody, dark && styles.lightBody]}>{body}</Text>
+      <Icon name={icon} color={dark ? '#FFFFFF' : colors.green} size={42} />
+      <Text style={[styles.tileTitle, dark && styles.lightText]} numberOfLines={1}>{title}</Text>
+      <Text style={[styles.tileBody, dark && styles.lightBody]} numberOfLines={1}>{body}</Text>
     </Pressable>
   );
 }
@@ -911,7 +951,7 @@ function ScanMiniCard({ item, onPress }) {
     <Pressable style={({ pressed }) => [styles.scanMiniCard, pressed && styles.pressed]} onPress={onPress}>
       <ProductBottle item={item} />
       <View style={styles.scanMiniText}>
-        <Text style={styles.scanMiniTitle}>{item.title}</Text>
+        <Text style={styles.scanMiniTitle} numberOfLines={2} ellipsizeMode="tail">{item.title}</Text>
         <View style={styles.scannedRow}>
           <View style={styles.scannedDot} />
           <Text style={styles.scannedText}>{item.subtitle || 'Scanned'}{item.time ? `\n${item.time}` : ''}</Text>
@@ -943,7 +983,7 @@ function FeedCard({ card, onPress }) {
           <Text style={styles.feedReason} numberOfLines={1}>{card.reasonLabel}</Text>
           <Text style={styles.feedDate}>{card.date}</Text>
         </View>
-        <Text style={styles.feedTitle}>{card.title}</Text>
+        <Text style={styles.feedTitle} numberOfLines={2} ellipsizeMode="tail">{card.title}</Text>
         <Text style={styles.feedBody} numberOfLines={2}>{card.summary || card.body}</Text>
         <View style={styles.feedPill}>
           <Icon name="doc" color={colors.green} size={16} />
@@ -1036,7 +1076,7 @@ function BottomTabs({ activeTab, onTab }) {
             onPress={() => onTab(target)}
           >
             <View style={[tab.center ? styles.centerTab : styles.tabIconWrap, active && !tab.center && styles.tabActive]}>
-              <Icon name={tab.icon} color={tab.center ? '#FFFFFF' : active ? colors.green : '#5B6060'} size={tab.center ? 36 : 26} />
+              <Icon name={tab.icon} color={tab.center ? '#FFFFFF' : active ? colors.green : '#5B6060'} size={tab.center ? 30 : 22} />
             </View>
             {!!tab.label && <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>}
           </Pressable>
@@ -1135,35 +1175,84 @@ function Icon({ name, color, size }) {
 
 const cardShadow = {
   shadowColor: colors.shadow,
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.08,
-  shadowRadius: 18,
-  elevation: 5,
+  shadowOffset: { width: 0, height: 5 },
+  shadowOpacity: 0.055,
+  shadowRadius: 12,
+  elevation: 3,
 };
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: colors.cream },
   content: { flex: 1 },
-  homeScroll: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 164 },
-  screenScroll: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 168 },
-  resultScroll: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 176 },
+  splashScreen: {
+    flex: 1,
+    backgroundColor: colors.cream,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  splashMark: {
+    width: 76,
+    height: 76,
+    borderRadius: 28,
+    backgroundColor: colors.greenSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  splashLeaf: {
+    color: colors.greenDark,
+    fontSize: 36,
+    fontWeight: '800',
+  },
+  splashBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  splashBrand: {
+    color: colors.greenDark,
+    fontSize: 38,
+    lineHeight: 44,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  splashAccentLeaf: {
+    width: 10,
+    height: 18,
+    borderTopLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    backgroundColor: '#B8C8AD',
+    transform: [{ rotate: '38deg' }],
+    marginLeft: 6,
+    marginTop: -10,
+  },
+  splashLine: {
+    color: colors.muted,
+    fontSize: 16,
+    lineHeight: 23,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  homeScroll: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 142 },
+  screenScroll: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 148 },
+  resultScroll: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 156 },
   topRow: {
     position: 'relative',
-    marginBottom: 20,
-    minHeight: 104,
+    marginBottom: 18,
+    minHeight: 88,
   },
   heroTitle: {
     color: colors.greenDark,
-    fontSize: 48,
-    lineHeight: 52,
+    fontSize: 40,
+    lineHeight: 44,
     fontWeight: '800',
     letterSpacing: 0,
   },
   brandRow: { flexDirection: 'row', alignItems: 'center', marginTop: -2 },
   heroBrand: {
     color: colors.greenDark,
-    fontSize: 33,
-    lineHeight: 37,
+    fontSize: 28,
+    lineHeight: 32,
     fontWeight: '800',
     letterSpacing: 0,
   },
@@ -1180,7 +1269,7 @@ const styles = StyleSheet.create({
   headerActions: {
     position: 'absolute',
     right: 0,
-    top: 9,
+    top: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 13,
@@ -1198,17 +1287,17 @@ const styles = StyleSheet.create({
     borderColor: colors.cream,
   },
   profileBubble: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#EEF0E8',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  actionRow: { flexDirection: 'row', gap: 8, marginBottom: 18 },
   actionTile: {
-    minHeight: 124,
-    borderRadius: 22,
+    minHeight: 108,
+    borderRadius: 18,
     backgroundColor: colors.cardSoft,
     borderWidth: 1,
     borderColor: colors.line,
@@ -1220,72 +1309,72 @@ const styles = StyleSheet.create({
   actionTileDark: { backgroundColor: colors.green, borderColor: colors.green },
   tileTitle: {
     color: colors.greenDark,
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '800',
     textAlign: 'center',
-    marginTop: 9,
+    marginTop: 8,
   },
   tileBody: {
     color: colors.greenDark,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     textAlign: 'center',
     marginTop: 6,
   },
   lightText: { color: '#FFFFFF' },
   lightBody: { color: '#F3F6EE' },
   searchWrap: {
-    minHeight: 62,
-    borderRadius: 25,
+    minHeight: 56,
+    borderRadius: 20,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 17,
-    marginBottom: 24,
+    marginBottom: 22,
     ...cardShadow,
   },
-  searchInput: { flex: 1, minHeight: 56, marginLeft: 13, color: colors.ink, fontSize: 18 },
+  searchInput: { flex: 1, minHeight: 52, marginLeft: 12, color: colors.ink, fontSize: 16 },
   sectionTitle: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  sectionHeading: { color: colors.greenDark, fontSize: 25, fontWeight: '800', letterSpacing: 0, flex: 1, paddingRight: 12 },
-  sectionAction: { color: colors.green, fontSize: 16, fontWeight: '700', flexShrink: 0 },
+  sectionHeading: { color: colors.greenDark, fontSize: 22, fontWeight: '800', letterSpacing: 0, flex: 1, paddingRight: 12 },
+  sectionAction: { color: colors.green, fontSize: 14, fontWeight: '700', flexShrink: 0 },
   edgeCarousel: { marginHorizontal: -18, paddingLeft: 18, paddingRight: 18, marginBottom: 24 },
   scanMiniCard: {
-    width: 196,
-    minHeight: 116,
-    borderRadius: 18,
+    width: 180,
+    minHeight: 96,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 13,
+    padding: 11,
     marginRight: 13,
     ...cardShadow,
   },
   productPad: {
-    width: 68,
-    height: 80,
-    borderRadius: 13,
+    width: 56,
+    height: 66,
+    borderRadius: 12,
     backgroundColor: '#F4F0E8',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 13,
   },
-  bottleCap: { width: 32, height: 10, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
-  bottle: { width: 42, height: 55, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  bottleLabel: { width: 34, height: 24, borderRadius: 4, borderWidth: 2, borderColor: '#FFFFFF' },
+  bottleCap: { width: 26, height: 8, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
+  bottle: { width: 34, height: 46, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  bottleLabel: { width: 27, height: 20, borderRadius: 4, borderWidth: 2, borderColor: '#FFFFFF' },
   scanMiniText: { flex: 1 },
-  scanMiniTitle: { color: '#0F1614', fontSize: 18, lineHeight: 21, fontWeight: '700' },
-  scannedRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 10 },
-  scannedDot: { width: 11, height: 11, borderRadius: 999, backgroundColor: colors.green, marginTop: 4, marginRight: 8 },
-  scannedText: { color: colors.muted, fontSize: 16, lineHeight: 18 },
+  scanMiniTitle: { color: '#0F1614', fontSize: 15, lineHeight: 18, fontWeight: '700' },
+  scannedRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 7 },
+  scannedDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: colors.green, marginTop: 4, marginRight: 6 },
+  scannedText: { color: colors.muted, fontSize: 12, lineHeight: 15 },
   emptyMiniCard: {
     width: 220,
     minHeight: 96,
@@ -1300,22 +1389,22 @@ const styles = StyleSheet.create({
   emptyMiniTitle: { color: colors.greenDark, fontSize: 16, fontWeight: '800' },
   emptyMiniBody: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
   feedCard: {
-    minHeight: 118,
-    borderRadius: 18,
+    minHeight: 106,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 10,
     marginBottom: 10,
     overflow: 'hidden',
     ...cardShadow,
   },
   updateMarker: {
-    width: 72,
-    minHeight: 84,
-    borderRadius: 14,
+    width: 62,
+    minHeight: 76,
+    borderRadius: 12,
     backgroundColor: colors.greenSoft,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1324,8 +1413,8 @@ const styles = StyleSheet.create({
   },
   updateMarkerText: {
     color: colors.green,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 10,
+    lineHeight: 14,
     fontWeight: '800',
     textAlign: 'center',
   },
@@ -1368,27 +1457,27 @@ const styles = StyleSheet.create({
   },
   feedReason: {
     color: colors.green,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: '800',
     marginBottom: 3,
     flex: 1,
   },
-  feedDate: { color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 3 },
-  feedTitle: { color: colors.greenDark, fontSize: 18, lineHeight: 22, fontWeight: '800' },
-  feedBody: { color: '#6D6C6A', fontSize: 13, lineHeight: 18, marginTop: 3 },
+  feedDate: { color: colors.muted, fontSize: 10, fontWeight: '800', marginBottom: 3 },
+  feedTitle: { color: colors.greenDark, fontSize: 16, lineHeight: 20, fontWeight: '800' },
+  feedBody: { color: '#6D6C6A', fontSize: 12, lineHeight: 16, marginTop: 3 },
   feedPill: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.greenSoft,
     borderRadius: 12,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginTop: 7,
     gap: 7,
   },
-  feedPillText: { color: colors.green, fontSize: 12, fontWeight: '700' },
+  feedPillText: { color: colors.green, fontSize: 11, fontWeight: '700' },
   feedMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1420,31 +1509,31 @@ const styles = StyleSheet.create({
   },
   filterChipText: { color: colors.muted, fontSize: 13, fontWeight: '800' },
   filterChipTextActive: { color: '#FFFFFF' },
-  feedArrow: { color: colors.green, fontSize: 28, fontWeight: '300', paddingLeft: 8 },
-  screenHeader: { marginBottom: 22 },
-  screenTitle: { color: colors.greenDark, fontSize: 42, lineHeight: 48, fontWeight: '800', letterSpacing: 0 },
-  screenSubtitle: { color: colors.muted, fontSize: 18, lineHeight: 25, marginTop: 8 },
+  feedArrow: { color: colors.green, fontSize: 24, fontWeight: '300', paddingLeft: 6 },
+  screenHeader: { marginBottom: 18 },
+  screenTitle: { color: colors.greenDark, fontSize: 34, lineHeight: 40, fontWeight: '800', letterSpacing: 0 },
+  screenSubtitle: { color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 6 },
   cameraShell: {
     flex: 1,
     backgroundColor: colors.cream,
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 24,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 20,
   },
   cameraHeader: {
     marginBottom: 16,
   },
   cameraTitle: {
     color: colors.greenDark,
-    fontSize: 40,
-    lineHeight: 46,
+    fontSize: 34,
+    lineHeight: 40,
     fontWeight: '800',
     letterSpacing: 0,
   },
   cameraSubtitle: {
     color: colors.muted,
-    fontSize: 17,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 22,
     marginTop: 4,
   },
   debugLine: {
@@ -1462,7 +1551,7 @@ const styles = StyleSheet.create({
   },
   cameraPreview: {
     flex: 1,
-    borderRadius: 34,
+    borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: colors.greenDark,
     ...cardShadow,
@@ -1501,16 +1590,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cameraGuideCorner: {
-    width: 230,
-    height: 230,
-    borderRadius: 34,
+    width: 210,
+    height: 210,
+    borderRadius: 28,
     borderWidth: 4,
     borderColor: '#FFFFFF',
     opacity: 0.92,
   },
   cameraGuideText: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     marginTop: 16,
     textShadowColor: 'rgba(0,0,0,0.35)',
@@ -1518,21 +1607,21 @@ const styles = StyleSheet.create({
     textShadowRadius: 6,
   },
   capturePanel: {
-    borderRadius: 26,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,253,248,0.96)',
     padding: 14,
     ...cardShadow,
   },
   captureButton: {
-    minHeight: 64,
-    borderRadius: 24,
+    minHeight: 58,
+    borderRadius: 20,
     backgroundColor: colors.green,
     alignItems: 'center',
     justifyContent: 'center',
   },
   captureButtonText: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
   },
   disabledButton: {
@@ -1566,7 +1655,7 @@ const styles = StyleSheet.create({
   },
   photoPreview: {
     flex: 1,
-    borderRadius: 34,
+    borderRadius: 24,
     backgroundColor: colors.greenDark,
     marginBottom: 16,
     ...cardShadow,
@@ -1584,8 +1673,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   secondaryButton: {
-    minHeight: 58,
-    borderRadius: 22,
+    minHeight: 52,
+    borderRadius: 18,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
@@ -1594,7 +1683,7 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: colors.green,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
   },
   scanFrame: {
@@ -1609,9 +1698,9 @@ const styles = StyleSheet.create({
   },
   scanText: { color: '#FFFFFF', fontSize: 25, fontWeight: '800', lineHeight: 31, textAlign: 'center', marginTop: 24 },
   scanFinePrint: { color: '#E8EFE5', fontSize: 16, marginTop: 8 },
-  resultHero: { borderRadius: 24, backgroundColor: colors.greenDark, padding: 18, marginBottom: 12, ...cardShadow },
-  resultTitle: { color: '#FFFFFF', fontSize: 28, fontWeight: '800', lineHeight: 33 },
-  resultBody: { color: '#E7EFE6', fontSize: 14, lineHeight: 20, marginTop: 8 },
+  resultHero: { borderRadius: 20, backgroundColor: colors.greenDark, padding: 16, marginBottom: 10, ...cardShadow },
+  resultTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '800', lineHeight: 29 },
+  resultBody: { color: '#E7EFE6', fontSize: 13, lineHeight: 18, marginTop: 7 },
   pill: {
     alignSelf: 'flex-start',
     color: colors.green,
@@ -1625,50 +1714,50 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   infoCard: {
-    borderRadius: 18,
+    borderRadius: 16,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 15,
-    marginBottom: 10,
+    padding: 13,
+    marginBottom: 9,
     ...cardShadow,
   },
   compactInfoCard: {
     padding: 12,
     marginBottom: 9,
   },
-  cardTitle: { color: colors.greenDark, fontSize: 18, lineHeight: 24, fontWeight: '800' },
-  cardBody: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 5 },
+  cardTitle: { color: colors.greenDark, fontSize: 16, lineHeight: 22, fontWeight: '800' },
+  cardBody: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
   compactCardTitle: { fontSize: 15, lineHeight: 20 },
   compactCardBody: { fontSize: 12, lineHeight: 17, marginTop: 4 },
   primaryButton: {
-    minHeight: 56,
-    borderRadius: 20,
+    minHeight: 52,
+    borderRadius: 18,
     backgroundColor: colors.green,
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: 8,
     ...cardShadow,
   },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   guardrail: { borderRadius: 18, backgroundColor: '#F1EBDD', padding: 13, marginTop: 8 },
   guardrailTitle: { color: colors.greenDark, fontSize: 14, fontWeight: '800' },
   guardrailText: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
   listRow: {
-    minHeight: 84,
-    borderRadius: 22,
+    minHeight: 74,
+    borderRadius: 18,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 16,
+    padding: 14,
     marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     ...cardShadow,
   },
-  rowTitle: { color: colors.greenDark, fontSize: 20, fontWeight: '800' },
-  rowBody: { color: colors.muted, fontSize: 15, marginTop: 4 },
+  rowTitle: { color: colors.greenDark, fontSize: 17, fontWeight: '800' },
+  rowBody: { color: colors.muted, fontSize: 13, marginTop: 4 },
   arrow: { color: colors.green, fontSize: 30, marginLeft: 14 },
   backButton: { alignSelf: 'flex-start', paddingVertical: 8, paddingRight: 14, marginBottom: 8 },
   backText: { color: colors.green, fontSize: 17, fontWeight: '800' },
@@ -1709,49 +1798,50 @@ const styles = StyleSheet.create({
   emptyStateTitle: { color: colors.greenDark, fontSize: 22, fontWeight: '800' },
   emptyStateBody: { color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 6 },
   profileCard: {
-    borderRadius: 28,
+    borderRadius: 18,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 24,
-    alignItems: 'center',
-    marginBottom: 14,
+    padding: 16,
+    marginBottom: 12,
     ...cardShadow,
   },
   largeProfileBubble: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#EEF0E8',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
   },
-  profileName: { color: colors.greenDark, fontSize: 26, fontWeight: '800' },
+  profileSummaryRow: { flexDirection: 'row', alignItems: 'center' },
+  profileSummaryText: { marginLeft: 14, flex: 1 },
+  profileName: { color: colors.greenDark, fontSize: 21, fontWeight: '800' },
+  profileCaption: { color: colors.muted, fontSize: 13, marginTop: 4 },
   tabBar: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 13,
-    minHeight: 86,
-    borderRadius: 28,
+    left: 14,
+    right: 14,
+    bottom: 12,
+    minHeight: 72,
+    borderRadius: 24,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     ...cardShadow,
   },
-  tabItem: { flex: 1, minHeight: 70, alignItems: 'center', justifyContent: 'center' },
-  centerTabWrap: { marginTop: -43 },
+  tabItem: { flex: 1, minHeight: 58, alignItems: 'center', justifyContent: 'center' },
+  centerTabWrap: { marginTop: -34 },
   centerTab: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: colors.green,
-    borderWidth: 6,
+    borderWidth: 5,
     borderColor: colors.cream,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1761,9 +1851,9 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 8,
   },
-  tabIconWrap: { height: 31, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  tabIconWrap: { height: 27, alignItems: 'center', justifyContent: 'center', marginBottom: 3 },
   tabActive: { transform: [{ scale: 1.04 }] },
-  tabLabel: { color: '#5B6060', fontSize: 13, fontWeight: '500' },
+  tabLabel: { color: '#5B6060', fontSize: 11, fontWeight: '600' },
   tabLabelActive: { color: colors.green, fontWeight: '800' },
   pressed: { opacity: 0.78 },
   bellIcon: { width: 30, height: 34, alignItems: 'center' },
