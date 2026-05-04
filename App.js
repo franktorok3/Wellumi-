@@ -60,83 +60,107 @@ const defaultFeedArt = [
 
 const mockFeedLibrary = [
   {
-    id: 'zinc-label-literacy',
-    title: 'Reading zinc supplement labels',
-    summary: 'A neutral look at ingredient names, serving information, and claims commonly seen on zinc products.',
+    id: 'zinc-immune-language',
+    updateType: 'Label trend',
+    title: 'Zinc products and immune wellness language',
+    summary: 'A neutral look at common wording used on zinc supplement labels.',
     tag: 'zinc',
     relatedTags: ['zinc', 'supplements', 'label literacy'],
     sourceLabel: 'Source-backed context',
-    cta: 'Read context',
+    cta: 'Read update',
+    date: 'Today',
+    filterType: 'Trends',
     palette: ['#C9B58A', '#F4EBD7', '#7E8B62'],
   },
   {
-    id: 'supplement-facts-basics',
-    title: 'Supplement facts basics',
-    summary: 'How to separate product identity, ingredient lists, and marketing language on a label.',
+    id: 'supplement-label-wording',
+    updateType: 'Source update',
+    title: 'Common wording on supplement facts panels',
+    summary: 'A source-literacy reminder to separate product identity, ingredient lists, and marketing language.',
     tag: 'label literacy',
     relatedTags: ['supplements', 'label literacy'],
     sourceLabel: 'Source-backed context',
-    cta: 'Save',
+    cta: 'View context',
+    date: 'Updated recently',
+    filterType: 'Updates',
     palette: ['#D9CAB4', '#F4ECDF', '#BFA98B'],
   },
   {
-    id: 'magnesium-context',
-    title: 'Magnesium label context',
-    summary: 'People often look up magnesium in connection with supplement routines, sleep-related searches, and general wellness language.',
+    id: 'magnesium-sleep-content',
+    updateType: 'Research mention',
+    title: 'Magnesium forms are showing up in sleep content',
+    summary: 'Recent wellness content often compares magnesium forms. Wellumi keeps the focus on label literacy and questions to ask.',
     tag: 'magnesium',
     relatedTags: ['magnesium', 'sleep', 'supplements'],
     sourceLabel: 'Source-backed context',
-    cta: 'Read context',
+    cta: 'Read update',
+    date: 'This week',
+    filterType: 'Updates',
     palette: ['#D7C4A8', '#F6EDE0', '#A88D70'],
   },
   {
-    id: 'sleep-claims',
-    title: 'Sleep support claims',
-    summary: 'A label-literacy view of common wording around sleep-related products, without interpreting whether a product works.',
+    id: 'sleep-label-language',
+    updateType: 'Related topic',
+    title: 'Sleep-support wording on wellness labels',
+    summary: 'A label-literacy view of common wording around sleep-related products without evaluating product claims.',
     tag: 'sleep',
     relatedTags: ['sleep', 'supplements', 'label literacy'],
     sourceLabel: 'Source-backed context',
-    cta: 'Read context',
+    cta: 'View context',
+    date: 'Updated recently',
+    filterType: 'Updates',
     palette: ['#E9DFCF', '#CDBB9E', '#F8F2E8'],
   },
   {
-    id: 'otc-questions',
-    title: 'OTC label questions',
-    summary: 'What to notice on OTC packaging, including active ingredients, warnings, and questions for a qualified professional.',
+    id: 'otc-combining-products',
+    updateType: 'FDA/consumer update',
+    title: 'Reading OTC labels before combining products',
+    summary: 'A reminder to review active ingredients and ask a pharmacist when comparing OTC products.',
     tag: 'OTC',
     relatedTags: ['otc', 'pain relief', 'medication questions'],
     sourceLabel: 'Source-backed context',
-    cta: 'Save',
+    cta: 'Read update',
+    date: 'Today',
+    filterType: 'Updates',
     palette: ['#B8C7D5', '#EEF3F4', '#6F8BA5'],
   },
   {
-    id: 'ibuprofen-context',
-    title: 'Ibuprofen context checklist',
-    summary: 'A neutral checklist for reading active ingredient labels and preparing medication-related questions.',
+    id: 'ibuprofen-active-ingredient',
+    updateType: 'Question to ask',
+    title: 'Active ingredient questions for ibuprofen labels',
+    summary: 'A neutral prompt to compare active ingredient names and bring medication questions to a qualified professional.',
     tag: 'ibuprofen',
     relatedTags: ['ibuprofen', 'otc', 'pain relief', 'medication questions'],
     sourceLabel: 'Source-backed context',
-    cta: 'Read context',
+    cta: 'View context',
+    date: 'This week',
+    filterType: 'Scans',
     palette: ['#C3D3E3', '#F2F6F8', '#7F9AB2'],
   },
   {
-    id: 'probiotic-labels',
-    title: 'Probiotic label terms',
+    id: 'probiotic-label-terms',
+    updateType: 'Label trend',
+    title: 'Probiotic labels and gut wellness terms',
     summary: 'A plain-language look at strain names, product categories, and common gut wellness marketing terms.',
     tag: 'gut wellness',
     relatedTags: ['probiotic', 'gut wellness', 'supplements', 'label literacy'],
     sourceLabel: 'Source-backed context',
-    cta: 'Read context',
+    cta: 'Read update',
+    date: 'Updated recently',
+    filterType: 'Trends',
     palette: ['#9EBB8E', '#E8F0E2', '#4E6F43'],
   },
   {
     id: 'saved-follow-up',
-    title: 'Saved topic follow-up',
-    summary: 'A compact guide for revisiting saved label summaries and turning them into questions for a qualified professional.',
+    updateType: 'Related topic',
+    title: 'Turning saved summaries into better questions',
+    summary: 'A compact guide for revisiting saved label summaries and preparing questions for a qualified professional.',
     tag: 'saved',
     relatedTags: ['saved', 'label literacy', 'medication questions'],
     sourceLabel: 'Source-backed context',
-    cta: 'Read context',
+    cta: 'Save topic',
+    date: 'Updated recently',
+    filterType: 'Saved Topics',
     palette: ['#D5C2A2', '#F5EEE2', '#8A7659'],
   },
 ];
@@ -157,16 +181,17 @@ function extractAwarenessTags(text) {
 }
 
 function buildFeedCards(behavior) {
-  const savedTitles = behavior.savedResults.map((result) => result.title);
+  const savedItems = behavior.savedItems || [];
+  const savedTitles = savedItems.map((item) => item.title);
   const activeTags = [
     ...behavior.scans.flatMap((result) =>
       extractAwarenessTags(`${result.title} ${result.detectedLabelText || ''}`)
     ),
     ...behavior.searches.flatMap(extractAwarenessTags),
-    ...behavior.savedResults.flatMap((result) =>
-      extractAwarenessTags(`${result.title} ${result.detectedLabelText || ''}`)
+    ...savedItems.flatMap((item) =>
+      extractAwarenessTags(`${item.title} ${item.result?.detectedLabelText || ''}`)
     ),
-    ...(behavior.savedResults.length ? ['saved'] : []),
+    ...(savedItems.length ? ['saved'] : []),
   ];
   const tagSet = new Set(activeTags);
 
@@ -177,8 +202,12 @@ function buildFeedCards(behavior) {
         card.relatedTags.some((tag) => extractAwarenessTags(title).includes(tag))
       );
 
-      let reasonLabel = 'Suggested for label awareness';
+      let reasonLabel = 'Starter awareness update';
       if (savedMatch) reasonLabel = `Because you saved ${savedMatch}`;
+      else if (matchedTags.includes('zinc')) reasonLabel = 'Because you scanned zinc';
+      else if (matchedTags.includes('magnesium')) reasonLabel = 'Because you scanned magnesium';
+      else if (matchedTags.includes('otc')) reasonLabel = 'Based on OTC scan activity';
+      else if (behavior.searches.length && matchedTags.length) reasonLabel = 'Based on recent searches';
       else if (matchedTags.length) reasonLabel = `Because of ${matchedTags[0]}`;
 
       return {
@@ -197,11 +226,41 @@ function buildFeedCards(behavior) {
     .slice(0, 3 - personalized.length)
     .map((card) => ({
       ...card,
-      reasonLabel: 'Suggested for label awareness',
+      reasonLabel: 'Starter awareness update',
       score: 0,
     }));
 
   return [...personalized, ...fallback];
+}
+
+function getResultKey(result) {
+  return String(result?.title || 'untitled').toLowerCase();
+}
+
+function getResultDescription(result) {
+  return result?.sections?.[0]?.body || 'Saved label context for later review.';
+}
+
+function createLibraryItem(result, type = 'Scan') {
+  return {
+    id: getResultKey(result),
+    title: result.title,
+    type,
+    description: getResultDescription(result),
+    savedAtLabel: 'Saved today',
+    result,
+  };
+}
+
+function createRecentScanItem(result, index) {
+  return {
+    id: `${getResultKey(result)}-${index}`,
+    title: result.title,
+    subtitle: 'Scanned today',
+    color: '#7E8B62',
+    bottle: '#243329',
+    result,
+  };
 }
 
 const mockResultSummary = {
@@ -318,18 +377,29 @@ const tabs = [
   { key: 'profile', label: 'Profile', icon: 'profile' },
 ];
 
+const feedFilters = ['All', 'Updates', 'Trends', 'Saved Topics', 'Scans'];
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [query, setQuery] = useState('');
   const [showResult, setShowResult] = useState(false);
   const [currentResult, setCurrentResult] = useState(mockResultSummary);
+  const [currentResultType, setCurrentResultType] = useState('Scan');
+  const [activeFeedFilter, setActiveFeedFilter] = useState('All');
   const [behavior, setBehavior] = useState({
     scans: [],
     searches: [],
-    savedResults: [],
+    savedItems: [],
   });
 
   const personalizedFeed = useMemo(() => buildFeedCards(behavior), [behavior]);
+  const recentScanItems = useMemo(
+    () => behavior.scans.map(createRecentScanItem),
+    [behavior.scans]
+  );
+  const currentResultSaved = behavior.savedItems.some(
+    (item) => item.id === getResultKey(currentResult)
+  );
 
   function rememberResult(kind, result = mockResultSummary) {
     if (kind !== 'scan') return;
@@ -353,17 +423,15 @@ export default function App() {
   function saveCurrentResult() {
     setBehavior((current) => ({
       ...current,
-      savedResults: [
-        currentResult,
-        ...current.savedResults.filter((result) => result.title !== currentResult.title),
-      ].slice(0, 6),
+      savedItems: current.savedItems.some((item) => item.id === getResultKey(currentResult))
+        ? current.savedItems
+        : [createLibraryItem(currentResult, currentResultType), ...current.savedItems].slice(0, 12),
     }));
-    setShowResult(false);
-    setActiveTab('library');
   }
 
   function openResult(result = mockResultSummary, source = 'manual') {
     rememberResult(source, result);
+    setCurrentResultType(source === 'scan' ? 'Scan' : source === 'search' ? 'Claim' : 'Topic');
     setCurrentResult(result);
     setShowResult(true);
   }
@@ -373,6 +441,7 @@ export default function App() {
       return (
         <ResultScreen
           result={currentResult}
+          isSaved={currentResultSaved}
           onBack={() => setShowResult(false)}
           onSave={saveCurrentResult}
         />
@@ -392,8 +461,19 @@ export default function App() {
         />
       );
     }
-    if (activeTab === 'library') return <LibraryScreen onOpen={() => openResult()} />;
-    if (activeTab === 'feed') return <FeedScreen cards={personalizedFeed} onOpen={() => openResult()} />;
+    if (activeTab === 'library') {
+      return <LibraryScreen items={behavior.savedItems} onOpen={(item) => openResult(item.result, 'library')} />;
+    }
+    if (activeTab === 'feed') {
+      return (
+        <FeedScreen
+          cards={personalizedFeed}
+          activeFilter={activeFeedFilter}
+          onFilter={setActiveFeedFilter}
+          onOpen={() => openResult(mockResultSummary, 'feed')}
+        />
+      );
+    }
     if (activeTab === 'profile') return <ProfileScreen />;
 
     return (
@@ -402,11 +482,12 @@ export default function App() {
         setQuery={setQuery}
         onTab={setActiveTab}
         onSearch={rememberSearch}
-        onResult={() => openResult(mockResultSummary, 'search')}
+        onResult={(result) => openResult(result || mockResultSummary, 'search')}
         feedCards={personalizedFeed}
+        recentScans={recentScanItems}
       />
     );
-  }, [activeTab, currentResult, personalizedFeed, query, showResult]);
+  }, [activeFeedFilter, activeTab, behavior.savedItems, currentResult, currentResultSaved, currentResultType, personalizedFeed, query, recentScanItems, showResult]);
 
   function handleTabPress(tab) {
     setActiveTab(tab);
@@ -424,7 +505,7 @@ export default function App() {
   );
 }
 
-function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards }) {
+function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, recentScans }) {
   const { width } = useWindowDimensions();
   const tileWidth = Math.max(96, (width - 62) / 3);
 
@@ -481,14 +562,21 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards }) {
 
       <SearchBox value={query} onChangeText={setQuery} onSubmit={submitSearch} />
 
-      <SectionTitle title="Continue from your scans" action="See all" />
+      <SectionTitle title="Continue Scans" action="See all" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.edgeCarousel}>
-        {scanItems.map((item) => (
-          <ScanMiniCard key={item.id} item={item} onPress={onResult} />
-        ))}
+        {recentScans.length ? (
+          recentScans.map((item) => (
+            <ScanMiniCard key={item.id} item={item} onPress={() => onResult(item.result)} />
+          ))
+        ) : (
+          <View style={styles.emptyMiniCard}>
+            <Text style={styles.emptyMiniTitle}>No recent scans yet.</Text>
+            <Text style={styles.emptyMiniBody}>Scan a label to continue from here.</Text>
+          </View>
+        )}
       </ScrollView>
 
-      <SectionTitle title="Today's feed" action="See all" />
+      <SectionTitle title="Today's Feed" action="See all" />
       {feedCards.slice(0, 3).map((card) => (
         <FeedCard key={card.id} card={card} onPress={onResult} />
       ))}
@@ -661,7 +749,7 @@ function SearchScreen({ query, setQuery, onSearch, onResult }) {
   );
 }
 
-function ResultScreen({ result, onBack, onSave }) {
+function ResultScreen({ result, isSaved, onBack, onSave }) {
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultScroll}>
       <Pressable style={styles.backButton} onPress={onBack}>
@@ -682,37 +770,71 @@ function ResultScreen({ result, onBack, onSave }) {
         <InfoCard compact title="Detected label text" body={result.detectedLabelText} />
       )}
       <InfoCard compact title="Important note" body={result.longDisclaimer || mockResultSummary.longDisclaimer} />
-      <PrimaryButton title="Save to Library" onPress={onSave} />
+      <PrimaryButton title={isSaved ? 'Saved' : 'Save to Library'} onPress={onSave} disabled={isSaved} />
       <GuardrailNote />
     </ScrollView>
   );
 }
 
-function LibraryScreen({ onOpen }) {
+function LibraryScreen({ items, onOpen }) {
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
-      <ScreenHeader title="My library" subtitle="Saved topics and scans for later conversations." />
-      {libraryItems.map((item, index) => (
-        <Pressable key={item.id} style={styles.libraryCard} onPress={onOpen}>
-          <ArticleArt palette={defaultFeedArt[index % defaultFeedArt.length].palette} small />
-          <View style={styles.libraryText}>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <Text style={styles.cardBody}>{item.body}</Text>
-          </View>
-          <Icon name="bookmark" color={colors.green} size={26} />
-        </Pressable>
-      ))}
+      <ScreenHeader title="My Library" subtitle="Saved scans, products, and topics." />
+      {items.length ? (
+        items.map((item) => (
+          <Pressable key={item.id} style={styles.libraryCard} onPress={() => onOpen(item)}>
+            <View style={styles.libraryTypeBadge}>
+              <Text style={styles.libraryTypeText}>{item.type}</Text>
+            </View>
+            <View style={styles.libraryText}>
+              <Text style={styles.libraryTitle}>{item.title}</Text>
+              <Text style={styles.libraryDescription} numberOfLines={2}>{item.description}</Text>
+              <Text style={styles.librarySavedAt}>{item.savedAtLabel}</Text>
+            </View>
+            <Icon name="bookmark" color={colors.green} size={24} />
+          </Pressable>
+        ))
+      ) : (
+        <View style={styles.emptyStateCard}>
+          <Text style={styles.emptyStateTitle}>Nothing saved yet.</Text>
+          <Text style={styles.emptyStateBody}>Save a scan or topic to build your Wellumi library.</Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
 
-function FeedScreen({ cards, onOpen }) {
+function FeedScreen({ cards, activeFilter, onFilter, onOpen }) {
+  const visibleCards = activeFilter === 'All'
+    ? cards
+    : cards.filter((card) => card.filterType === activeFilter);
+
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
-      <ScreenHeader title="Today's feed" subtitle="Short educational reads for better product conversations." />
-      {cards.map((card) => (
-        <FeedCard key={card.id} card={card} onPress={onOpen} />
-      ))}
+      <ScreenHeader title="Awareness Feed" subtitle="Updates based on your scans, searches, and saved topics." />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+        {feedFilters.map((filter) => (
+          <Pressable
+            key={filter}
+            style={[styles.filterChip, activeFilter === filter && styles.filterChipActive]}
+            onPress={() => onFilter(filter)}
+          >
+            <Text style={[styles.filterChipText, activeFilter === filter && styles.filterChipTextActive]}>
+              {filter}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+      {visibleCards.length ? (
+        visibleCards.map((card) => (
+          <FeedCard key={card.id} card={card} onPress={onOpen} />
+        ))
+      ) : (
+        <View style={styles.emptyStateCard}>
+          <Text style={styles.emptyStateTitle}>No updates in this filter yet.</Text>
+          <Text style={styles.emptyStateBody}>Scan, search, or save topics to shape this awareness feed.</Text>
+        </View>
+      )}
       <GuardrailNote />
     </ScrollView>
   );
@@ -778,7 +900,7 @@ function ScanMiniCard({ item, onPress }) {
         <Text style={styles.scanMiniTitle}>{item.title}</Text>
         <View style={styles.scannedRow}>
           <View style={styles.scannedDot} />
-          <Text style={styles.scannedText}>Scanned{'\n'}{item.time}</Text>
+          <Text style={styles.scannedText}>{item.subtitle || 'Scanned'}{item.time ? `\n${item.time}` : ''}</Text>
         </View>
       </View>
     </Pressable>
@@ -799,11 +921,16 @@ function ProductBottle({ item }) {
 function FeedCard({ card, onPress }) {
   return (
     <Pressable style={({ pressed }) => [styles.feedCard, pressed && styles.pressed]} onPress={onPress}>
-      <ArticleArt palette={card.palette} />
+      <View style={styles.updateMarker}>
+        <Text style={styles.updateMarkerText}>{card.updateType}</Text>
+      </View>
       <View style={styles.feedCopy}>
-        <Text style={styles.feedReason}>{card.reasonLabel}</Text>
+        <View style={styles.feedTopLine}>
+          <Text style={styles.feedReason} numberOfLines={1}>{card.reasonLabel}</Text>
+          <Text style={styles.feedDate}>{card.date}</Text>
+        </View>
         <Text style={styles.feedTitle}>{card.title}</Text>
-        <Text style={styles.feedBody}>{card.summary || card.body}</Text>
+        <Text style={styles.feedBody} numberOfLines={2}>{card.summary || card.body}</Text>
         <View style={styles.feedPill}>
           <Icon name="doc" color={colors.green} size={16} />
           <Text style={styles.feedPillText}>{card.sourceLabel}</Text>
@@ -1145,18 +1272,48 @@ const styles = StyleSheet.create({
   scannedRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 10 },
   scannedDot: { width: 11, height: 11, borderRadius: 999, backgroundColor: colors.green, marginTop: 4, marginRight: 8 },
   scannedText: { color: colors.muted, fontSize: 16, lineHeight: 18 },
+  emptyMiniCard: {
+    width: 220,
+    minHeight: 96,
+    borderRadius: 18,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 14,
+    marginRight: 13,
+    justifyContent: 'center',
+  },
+  emptyMiniTitle: { color: colors.greenDark, fontSize: 16, fontWeight: '800' },
+  emptyMiniBody: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
   feedCard: {
-    minHeight: 132,
-    borderRadius: 20,
+    minHeight: 118,
+    borderRadius: 18,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 0,
-    marginBottom: 12,
+    padding: 12,
+    marginBottom: 10,
     overflow: 'hidden',
     ...cardShadow,
+  },
+  updateMarker: {
+    width: 72,
+    minHeight: 84,
+    borderRadius: 14,
+    backgroundColor: colors.greenSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    marginRight: 12,
+  },
+  updateMarkerText: {
+    color: colors.green,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   articleArt: { width: 126, height: 112, borderRadius: 16, marginLeft: 4, overflow: 'hidden' },
   articleArtSmall: { width: 66, height: 66, marginLeft: 0, marginRight: 14 },
@@ -1188,16 +1345,24 @@ const styles = StyleSheet.create({
     opacity: 0.45,
     transform: [{ rotate: '12deg' }],
   },
-  feedCopy: { flex: 1, paddingHorizontal: 18, paddingVertical: 16 },
+  feedCopy: { flex: 1 },
+  feedTopLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
   feedReason: {
     color: colors.green,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
     marginBottom: 3,
+    flex: 1,
   },
-  feedTitle: { color: colors.greenDark, fontSize: 22, lineHeight: 26, fontWeight: '800' },
-  feedBody: { color: '#6D6C6A', fontSize: 14, lineHeight: 19, marginTop: 3 },
+  feedDate: { color: colors.muted, fontSize: 11, fontWeight: '800', marginBottom: 3 },
+  feedTitle: { color: colors.greenDark, fontSize: 18, lineHeight: 22, fontWeight: '800' },
+  feedBody: { color: '#6D6C6A', fontSize: 13, lineHeight: 18, marginTop: 3 },
   feedPill: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -1214,22 +1379,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 7,
     gap: 8,
   },
   feedTag: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
     textTransform: 'uppercase',
     flex: 1,
   },
-  feedCta: {
-    color: colors.green,
-    fontSize: 13,
-    fontWeight: '800',
+  feedCta: { color: colors.green, fontSize: 12, fontWeight: '800' },
+  filterRow: { marginHorizontal: -20, paddingHorizontal: 20, marginBottom: 14 },
+  filterChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.card,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    marginRight: 8,
   },
-  feedArrow: { color: colors.green, fontSize: 48, fontWeight: '300', paddingRight: 22 },
+  filterChipActive: {
+    backgroundColor: colors.green,
+    borderColor: colors.green,
+  },
+  filterChipText: { color: colors.muted, fontSize: 13, fontWeight: '800' },
+  filterChipTextActive: { color: '#FFFFFF' },
+  feedArrow: { color: colors.green, fontSize: 28, fontWeight: '300', paddingLeft: 8 },
   screenHeader: { marginBottom: 22 },
   screenTitle: { color: colors.greenDark, fontSize: 42, lineHeight: 48, fontWeight: '800', letterSpacing: 0 },
   screenSubtitle: { color: colors.muted, fontSize: 18, lineHeight: 25, marginTop: 8 },
@@ -1482,18 +1659,41 @@ const styles = StyleSheet.create({
   backButton: { alignSelf: 'flex-start', paddingVertical: 8, paddingRight: 14, marginBottom: 8 },
   backText: { color: colors.green, fontSize: 17, fontWeight: '800' },
   libraryCard: {
-    minHeight: 96,
-    borderRadius: 22,
+    minHeight: 92,
+    borderRadius: 18,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.line,
-    padding: 14,
-    marginBottom: 12,
+    padding: 13,
+    marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     ...cardShadow,
   },
   libraryText: { flex: 1 },
+  libraryTypeBadge: {
+    minWidth: 52,
+    borderRadius: 999,
+    backgroundColor: colors.greenSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  libraryTypeText: { color: colors.green, fontSize: 12, fontWeight: '800' },
+  libraryTitle: { color: colors.greenDark, fontSize: 18, lineHeight: 23, fontWeight: '800' },
+  libraryDescription: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 3 },
+  librarySavedAt: { color: colors.green, fontSize: 12, fontWeight: '800', marginTop: 6 },
+  emptyStateCard: {
+    borderRadius: 20,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 20,
+    ...cardShadow,
+  },
+  emptyStateTitle: { color: colors.greenDark, fontSize: 22, fontWeight: '800' },
+  emptyStateBody: { color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 6 },
   profileCard: {
     borderRadius: 28,
     backgroundColor: colors.card,
