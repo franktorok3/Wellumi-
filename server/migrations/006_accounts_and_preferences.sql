@@ -156,7 +156,7 @@ begin
     coalesce(new.raw_user_meta_data->>'display_name', 'Wellumi member'),
     case
       when new.is_anonymous then 'guest'
-      when new.app_metadata->>'provider' = 'apple' then 'apple'
+      when new.raw_app_meta_data->>'provider' = 'apple' then 'apple'
       when new.email is not null then 'email'
       else 'guest'
     end,

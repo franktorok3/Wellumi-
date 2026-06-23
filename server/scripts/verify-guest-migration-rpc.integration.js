@@ -230,6 +230,7 @@ async function main() {
         body: { sections: [] },
         story_category: 'everyday_wellness',
         lifestyle_category: 'everyday_wellness',
+        story_type: 'general',
         display_eligible: true,
       })
       .select('id')

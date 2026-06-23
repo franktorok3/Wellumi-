@@ -381,13 +381,51 @@ begin
     raise exception 'wellumi_test_abort_after_signals';
   end if;
 
-  -- saved_products: dedupe by destination user + product; keep earliest save date
-  insert into public.saved_products (user_id, product_id, created_at)
-  select p_destination_user_id, sp.product_id, sp.created_at
+  -- saved_products: preserve product-only and analysis-specific saves separately
+
+  -- Product-only saves use the partial unique index where analysis_id is null.
+  insert into public.saved_products (
+    user_id,
+    product_id,
+    created_at,
+    analysis_id,
+    scan_id
+  )
+  select
+    p_destination_user_id,
+    sp.product_id,
+    sp.created_at,
+    null,
+    sp.scan_id
   from public.saved_products sp
   where sp.user_id = v_guest_user_id
-  on conflict (user_id, product_id) do update set
-    created_at = least(excluded.created_at, saved_products.created_at);
+    and sp.analysis_id is null
+  on conflict (user_id, product_id) where analysis_id is null
+  do update set
+    created_at = least(excluded.created_at, saved_products.created_at),
+    scan_id = coalesce(saved_products.scan_id, excluded.scan_id);
+
+  -- Analysis-specific saves use the partial unique index where analysis_id is not null.
+  insert into public.saved_products (
+    user_id,
+    product_id,
+    created_at,
+    analysis_id,
+    scan_id
+  )
+  select
+    p_destination_user_id,
+    sp.product_id,
+    sp.created_at,
+    sp.analysis_id,
+    sp.scan_id
+  from public.saved_products sp
+  where sp.user_id = v_guest_user_id
+    and sp.analysis_id is not null
+  on conflict (user_id, product_id, analysis_id) where analysis_id is not null
+  do update set
+    created_at = least(excluded.created_at, saved_products.created_at),
+    scan_id = coalesce(saved_products.scan_id, excluded.scan_id);
 
   delete from public.saved_products where user_id = v_guest_user_id;
 
