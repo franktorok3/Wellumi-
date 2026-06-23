@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -13,11 +13,15 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-
-// Change this to your computer's local network IP when testing on a phone.
-// Do not use localhost on a phone; localhost points to the phone, not this computer.
-const API_BASE_URL = "http://192.168.68.66:3001";
-const LABEL_ANALYSIS_TIMEOUT_MS = 60000;
+import { analyzeLabelImage, fetchRecentScans, fetchSavedProducts, saveProduct } from './services/api';
+import { ensureAnonymousSession } from './services/auth';
+import {
+  getResultKey,
+  mapAnalysisToResultSummary,
+  mapSavedProductToLibraryItem,
+  mapScanToRecentItem,
+  mockResultSummary,
+} from './services/mappers';
 
 const colors = {
   cream: '#FBF8F1',
@@ -282,143 +286,20 @@ function buildFeedCards(behavior) {
   return [...personalized, ...fallback];
 }
 
-function getResultKey(result) {
-  return String(result?.title || 'untitled').toLowerCase();
-}
-
 function getResultDescription(result) {
   return result?.sections?.[0]?.body || 'Saved label context for later review.';
 }
 
 function createLibraryItem(result, type = 'Scan') {
   return {
-    id: getResultKey(result),
+    id: result.productId || getResultKey(result),
+    productId: result.productId || null,
     title: result.title,
     type,
     description: getResultDescription(result),
     savedAtLabel: 'Saved today',
     result,
   };
-}
-
-function createRecentScanItem(result, index) {
-  return {
-    id: `${getResultKey(result)}-${index}`,
-    title: result.title,
-    subtitle: 'Scanned today',
-    color: '#7E8B62',
-    bottle: '#243329',
-    result,
-  };
-}
-
-const mockResultSummary = {
-  title: 'Magnesium Glycinate',
-  kicker: 'Label summary',
-  neutralDisclaimer:
-    'General information only. Ask a qualified professional for personal guidance.',
-  longDisclaimer:
-    'Educational context only. No diagnosis, treatment advice, safety labels, risk scoring, supplement recommendations, dosage suggestions, or medical advice.',
-  sections: [
-    {
-      title: 'What it is',
-      body: 'A form of magnesium paired with glycine. Magnesium is an essential mineral found in foods and supplements.',
-    },
-    {
-      title: 'What people commonly use it for',
-      body: 'People often look it up in connection with sleep routines, muscle function, and general wellness.',
-    },
-    {
-      title: 'What sources say',
-      body: 'Public health and research sources describe magnesium as involved in nerve, muscle, and metabolic functions. Evidence varies by use and person.',
-    },
-    {
-      title: 'Questions to ask a professional',
-      body: 'Ask whether it fits your health history, medications, dose limits, pregnancy status, kidney health, and other products you use.',
-    },
-  ],
-};
-
-function mapAnalysisToResultSummary(analysis) {
-  return {
-    title: analysis.product_name || mockResultSummary.title,
-    kicker: 'Label summary',
-    detectedLabelText: analysis.detected_label_text || '',
-    neutralDisclaimer:
-      analysis.neutral_disclaimer ||
-      'This is general informational context. Ask a qualified professional for personal guidance.',
-    longDisclaimer:
-      'Educational context only. No diagnosis, treatment advice, safety labels, risk scoring, supplement recommendations, dosage suggestions, or medical advice.',
-    sections: [
-      {
-        title: 'What it is',
-        body: analysis.what_it_is || mockResultSummary.sections[0].body,
-      },
-      {
-        title: 'What people commonly use it for',
-        body: analysis.what_people_commonly_use_it_for || mockResultSummary.sections[1].body,
-      },
-      {
-        title: 'What sources say',
-        body: analysis.what_sources_say || mockResultSummary.sections[2].body,
-      },
-      {
-        title: 'Questions to ask a professional',
-        body: Array.isArray(analysis.questions_to_ask_a_professional)
-          ? analysis.questions_to_ask_a_professional.join('\n')
-          : mockResultSummary.sections[3].body,
-      },
-    ],
-  };
-}
-
-async function analyzeLabelImage(photo) {
-  if (!photo?.base64) {
-    throw new Error('The captured image did not include base64 data. Please retake the photo.');
-  }
-
-  let response;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), LABEL_ANALYSIS_TIMEOUT_MS);
-
-  try {
-    response = await fetch(`${API_BASE_URL}/analyze-label`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        imageBase64: photo.base64,
-        mimeType: 'image/jpeg',
-      }),
-    });
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error(`The label scan took too long after ${LABEL_ANALYSIS_TIMEOUT_MS / 1000} seconds.`);
-    }
-
-    throw new Error(`Fetch failed: ${error.message}`);
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  const responseText = await response.text();
-  let payload = {};
-
-  try {
-    payload = responseText ? JSON.parse(responseText) : {};
-  } catch (error) {
-    payload = {};
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `Backend returned ${response.status}: ${responseText || payload.error || 'No response body'}`
-    );
-  }
-
-  return mapAnalysisToResultSummary(payload);
 }
 
 const libraryItems = [
@@ -467,13 +348,34 @@ export default function App() {
     savedItems: [],
   });
 
+  const refreshPersistedData = useCallback(async () => {
+    try {
+      await ensureAnonymousSession();
+      const [scans, savedProducts] = await Promise.all([
+        fetchRecentScans(),
+        fetchSavedProducts(),
+      ]);
+
+      setBehavior((current) => ({
+        ...current,
+        scans: scans.map((scan, index) => mapScanToRecentItem(scan, index)),
+        savedItems: savedProducts.map(mapSavedProductToLibraryItem),
+      }));
+    } catch (error) {
+      console.log('[wellumi] Could not hydrate persisted data', error?.message || error);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshPersistedData();
+  }, [refreshPersistedData]);
+
   const personalizedFeed = useMemo(() => buildFeedCards(behavior), [behavior]);
-  const recentScanItems = useMemo(
-    () => behavior.scans.map(createRecentScanItem),
-    [behavior.scans]
-  );
+  const recentScanItems = useMemo(() => behavior.scans, [behavior.scans]);
   const currentResultSaved = behavior.savedItems.some(
-    (item) => item.id === getResultKey(currentResult)
+    (item) =>
+      (currentResult.productId && item.productId === currentResult.productId) ||
+      item.id === getResultKey(currentResult)
   );
 
   function rememberResult(kind, result = mockResultSummary) {
@@ -481,8 +383,22 @@ export default function App() {
 
     setBehavior((current) => ({
       ...current,
-      scans: [result, ...current.scans].slice(0, 6),
+      scans: [
+        {
+          id: result.scanId || `${getResultKey(result)}-${Date.now()}`,
+          title: result.title,
+          subtitle: 'Scanned today',
+          color: '#7E8B62',
+          bottle: '#243329',
+          result,
+        },
+        ...current.scans,
+      ].slice(0, 6),
     }));
+
+    if (result.persisted) {
+      refreshPersistedData();
+    }
   }
 
   function rememberSearch(searchText) {
@@ -495,13 +411,30 @@ export default function App() {
     }));
   }
 
-  function saveCurrentResult() {
-    setBehavior((current) => ({
-      ...current,
-      savedItems: current.savedItems.some((item) => item.id === getResultKey(currentResult))
-        ? current.savedItems
-        : [createLibraryItem(currentResult, currentResultType), ...current.savedItems].slice(0, 12),
-    }));
+  async function saveCurrentResult() {
+    if (!currentResult.productId) {
+      setBehavior((current) => ({
+        ...current,
+        savedItems: current.savedItems.some((item) => item.id === getResultKey(currentResult))
+          ? current.savedItems
+          : [createLibraryItem(currentResult, currentResultType), ...current.savedItems].slice(0, 12),
+      }));
+      return;
+    }
+
+    try {
+      const savedProduct = await saveProduct(currentResult.productId);
+      const libraryItem = mapSavedProductToLibraryItem(savedProduct);
+      setBehavior((current) => ({
+        ...current,
+        savedItems: [
+          libraryItem,
+          ...current.savedItems.filter((item) => item.productId !== libraryItem.productId),
+        ].slice(0, 12),
+      }));
+    } catch (error) {
+      Alert.alert('Could not save product', error?.message || 'Please try again.');
+    }
   }
 
   function openResult(result = mockResultSummary, source = 'manual') {
@@ -695,7 +628,6 @@ function ScanScreen({ onBack, onResult }) {
     if (!photo || isAnalyzing) return;
 
     console.log('[wellumi-debug] Use Photo tapped', {
-      apiBaseUrl: API_BASE_URL,
       hasPhoto: Boolean(photo),
       hasBase64: Boolean(photo?.base64),
       base64Length: photo?.base64?.length || 0,

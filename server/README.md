@@ -1,42 +1,131 @@
-# Wellumi Local Label Analysis Server
+# Wellumi API Server
 
-This server keeps the OpenAI API key out of the Expo app. The mobile app sends a captured label image to this local backend, and the backend calls OpenAI.
+Node/Express API for Wellumi. It keeps server-only secrets out of the Expo app and orchestrates:
 
-## Run Locally
+- OpenAI label analysis
+- Open Food Facts barcode lookup
+- USDA FoodData Central fallback nutrition lookup
+- Supabase Postgres persistence and scan image storage
+
+## Setup
+
+### 1. Install dependencies
 
 ```bash
+cd server
 npm install
-copy .env.example .env
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Fill in:
+
+- `OPENAI_API_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `USDA_FDC_API_KEY` (optional but recommended for nutrition fallback)
+
+### 3. Apply database migration
+
+In the Supabase SQL editor, run:
+
+```bash
+server/migrations/001_initial_schema.sql
+```
+
+Also enable anonymous sign-in in Supabase Auth:
+
+1. Authentication → Providers → Anonymous sign-ins → Enable
+
+### 4. Start the server
+
+```bash
 npm start
 ```
 
-Add your key to `server/.env`:
+Default URL: `http://localhost:3001`
 
-```bash
-OPENAI_API_KEY=your_openai_api_key_here
-```
+## Expo configuration
 
-The server runs on `http://localhost:3001` by default.
+Copy the root `.env.example` to `.env` and set:
 
-## Expo App URL
+- `EXPO_PUBLIC_API_BASE_URL` to your computer's LAN IP when testing on a phone
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
-In `App.js`, update `API_BASE_URL` to your computer's local network IP address when testing on a physical phone, for example:
+Never put service role, OpenAI, or USDA keys in the Expo app.
 
-```js
-const API_BASE_URL = 'http://192.168.1.25:3001';
-```
+## Endpoints
 
-Do not use `localhost` from a phone. On a phone, `localhost` points to the phone itself, not your computer.
+### `GET /health`
 
-## Endpoint
+Service status and configuration flags.
 
-`POST /analyze-label`
+### `POST /analyze-label`
+
+Primary scan workflow. Accepts a label image and/or barcode.
+
+Request:
 
 ```json
 {
-  "imageBase64": "",
-  "mimeType": "image/jpeg"
+  "imageBase64": "base64-without-data-uri-prefix",
+  "mimeType": "image/jpeg",
+  "barcode": "012345678905"
 }
 ```
 
-If `OPENAI_API_KEY` is missing, the server returns a clear setup error instead of calling OpenAI.
+Headers:
+
+```http
+Authorization: Bearer <supabase_access_token>
+```
+
+Behavior:
+
+- With auth + Supabase configured: resolves product data, persists product/analysis/scan, returns saved result
+- Without auth/Supabase: preserves legacy OpenAI-only image analysis response
+
+Response (persisted):
+
+```json
+{
+  "product_name": "Legacy UI fields preserved",
+  "detected_label_text": "...",
+  "what_it_is": "...",
+  "persisted": true,
+  "product": { "id": "uuid", "name": "...", "source": "merged" },
+  "analysis": { "id": "uuid", "summary": "...", "positives": [] },
+  "scan": { "id": "uuid", "scan_type": "image", "created_at": "..." }
+}
+```
+
+### `GET /scans`
+
+Returns the authenticated user's recent scans with joined product and analysis records.
+
+### `GET /saved-products`
+
+Returns the authenticated user's saved products.
+
+### `POST /saved-products`
+
+Request:
+
+```json
+{
+  "productId": "uuid"
+}
+```
+
+## Architecture notes
+
+- Products are deduplicated by barcode when present.
+- Open Food Facts is the first external lookup for barcodes.
+- USDA FoodData Central is used as a nutrition fallback when configured.
+- OpenAI output is stored as analysis, not verified product fact.
+- Raw source payloads are stored in `products.raw_source_data`.
