@@ -4,7 +4,7 @@
  * Requires migrations 006 + 007 applied on the target Supabase project.
  *
  * Run:
- *   WELLUMI_RUN_RPC_INTEGRATION=1 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm run verify:guest-migration-rpc
+ *   WELLUMI_RUN_RPC_INTEGRATION=1 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... SUPABASE_ANON_KEY=... npm run verify:guest-migration-rpc
  *
  * Without WELLUMI_RUN_RPC_INTEGRATION=1 the script exits 0 with SKIP.
  * With the flag set, missing RPC or failed assertions exit 1.

@@ -153,10 +153,14 @@ async function startOnboarding(userId) {
 async function saveOnboardingStep(userId, { step, draft = {} }) {
   const supabase = getSupabaseAdmin();
   if (draft.selected_interests || draft.selected_use_cases || draft.content_balance || draft.limited_topics) {
-    await putPreferences(userId, {
-      ...(await getPreferences(userId)),
-      ...draft,
-    });
+    await putPreferences(
+      userId,
+      {
+        ...(await getPreferences(userId)),
+        ...draft,
+      },
+      { syncSignals: false }
+    );
   }
 
   const { data, error } = await supabase
