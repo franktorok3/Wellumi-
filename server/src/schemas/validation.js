@@ -1,4 +1,10 @@
 const { z } = require('zod');
+const {
+  MAX_BASE64_LENGTH,
+  MAX_IMAGE_BYTES,
+  normalizeMimeType,
+  validateImagePayload,
+} = require('../utils/imageValidation');
 
 const barcodeSchema = z
   .string()
@@ -8,12 +14,33 @@ const barcodeSchema = z
 
 const analyzeLabelRequestSchema = z
   .object({
-    imageBase64: z.string().min(1).optional(),
+    imageBase64: z
+      .string()
+      .min(1)
+      .max(MAX_BASE64_LENGTH, `imageBase64 must be at most ${MAX_BASE64_LENGTH} characters`)
+      .optional(),
     mimeType: z.string().min(3).default('image/jpeg'),
     barcode: barcodeSchema,
   })
   .refine((value) => Boolean(value.imageBase64 || value.barcode), {
     message: 'imageBase64 or barcode is required',
+  })
+  .superRefine((value, ctx) => {
+    if (!value.imageBase64) {
+      return;
+    }
+
+    try {
+      validateImagePayload({
+        imageBase64: value.imageBase64,
+        mimeType: normalizeMimeType(value.mimeType),
+      });
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error.message,
+      });
+    }
   });
 
 const saveProductRequestSchema = z.object({
@@ -84,4 +111,6 @@ module.exports = {
   openFoodFactsResponseSchema,
   usdaSearchResponseSchema,
   validateBody,
+  MAX_IMAGE_BYTES,
+  MAX_BASE64_LENGTH,
 };

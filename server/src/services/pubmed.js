@@ -1,3 +1,5 @@
+const { normalizeExternalDate } = require('../utils/normalizeExternalDate');
+
 const NCBI_BASE = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 
 async function fetchJson(url) {
@@ -41,7 +43,10 @@ async function searchPubMed(term, { retmax = 5 } = {}) {
 }
 
 function mapPubMedSummaryToFeedItem(item) {
-  const pubDate = item.pubdate ? new Date(item.pubdate).toISOString() : null;
+  const pubDate =
+    normalizeExternalDate(item.pubdate) ||
+    normalizeExternalDate(item.epubdate) ||
+    normalizeExternalDate(item.sortpubdate);
   return {
     source: 'pubmed',
     source_type: 'research_update',

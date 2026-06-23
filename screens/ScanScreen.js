@@ -1,7 +1,7 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
-import { Image, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Linking, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { submitScan } from '../services/api';
 import { colors } from '../theme/tokens';
 
@@ -26,6 +26,50 @@ export default function ScanScreen({
   const [isCapturing, setIsCapturing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
+  const [cameraPermissionBlocked, setCameraPermissionBlocked] = useState(false);
+
+  async function ensureCameraPermission() {
+    if (permission?.granted) {
+      setCameraPermissionBlocked(false);
+      return true;
+    }
+
+    const result = await requestPermission();
+    if (result.granted) {
+      setCameraPermissionBlocked(false);
+      setAnalysisError('');
+      return true;
+    }
+
+    setCameraPermissionBlocked(result.canAskAgain === false);
+    return false;
+  }
+
+  async function startBarcodeMode() {
+    setAnalysisError('');
+    const granted = await ensureCameraPermission();
+    if (!granted) {
+      setMode('camera-permission');
+      return;
+    }
+    setMode('barcode');
+  }
+
+  async function startPhotoMode() {
+    setAnalysisError('');
+    const granted = await ensureCameraPermission();
+    if (!granted) {
+      setMode('camera-permission');
+      return;
+    }
+    setMode('photo');
+  }
+
+  function returnToChoose() {
+    setMode('choose');
+    setAnalysisError('');
+    setCameraPermissionBlocked(false);
+  }
 
   async function captureLabel() {
     if (!cameraRef.current || isCapturing) return;
@@ -105,35 +149,6 @@ export default function ScanScreen({
     }
   }
 
-  if (!permission) {
-    return (
-      <View style={styles.cameraShell}>
-        <HeaderBack styles={styles} onBack={onBack} />
-        <View style={styles.permissionCard}>
-          <Icon name="scan" color={colors.green} size={72} />
-          <Text style={styles.permissionTitle}>Preparing camera</Text>
-          <Text style={styles.permissionBody}>Wellumi is checking camera access.</Text>
-        </View>
-      </View>
-    );
-  }
-
-  if (!permission.granted) {
-    return (
-      <View style={styles.cameraShell}>
-        <HeaderBack styles={styles} onBack={onBack} />
-        <View style={styles.permissionCard}>
-          <Icon name="scan" color={colors.green} size={72} />
-          <Text style={styles.permissionTitle}>Camera access needed</Text>
-          <Text style={styles.permissionBody}>
-            Allow camera access to scan barcodes or capture a supplement label.
-          </Text>
-          <PrimaryButton title="Allow camera" onPress={requestPermission} />
-        </View>
-      </View>
-    );
-  }
-
   if (mode === 'review-photo' && photo) {
     return (
       <View style={styles.cameraShell}>
@@ -163,9 +178,9 @@ export default function ScanScreen({
           />
           <SecondaryButton
             title="Retake photo"
-            onPress={() => {
+            onPress={async () => {
               setPhoto(null);
-              setMode('photo');
+              await startPhotoMode();
             }}
             disabled={isAnalyzing}
           />
@@ -192,23 +207,53 @@ export default function ScanScreen({
           />
           <SecondaryButton
             title="Rescan barcode"
-            onPress={() => {
+            onPress={async () => {
               setBarcode(null);
-              setMode('barcode');
+              await startBarcodeMode();
             }}
             disabled={isAnalyzing}
           />
           <SecondaryButton
             title="Add label photo"
-            onPress={() => setMode('photo')}
+            onPress={startPhotoMode}
             disabled={isAnalyzing}
           />
+          <SecondaryButton title="Choose label photo" onPress={chooseFromLibrary} disabled={isAnalyzing} />
+        </View>
+      </View>
+    );
+  }
+
+  if (mode === 'camera-permission') {
+    return (
+      <View style={styles.cameraShell}>
+        <HeaderBack styles={styles} onBack={onBack} />
+        <View style={styles.permissionCard}>
+          <Icon name="scan" color={colors.green} size={72} />
+          <Text style={styles.permissionTitle}>Camera access needed</Text>
+          <Text style={styles.permissionBody}>
+            {cameraPermissionBlocked
+              ? 'Camera access is turned off for Wellumi. You can still choose a label photo from your library, or enable camera access in system settings.'
+              : 'Allow camera access to scan barcodes or capture a supplement label.'}
+          </Text>
+          {!!analysisError && <Text style={styles.analysisError}>{analysisError}</Text>}
+          {!cameraPermissionBlocked ? (
+            <PrimaryButton title="Allow camera" onPress={requestPermission} />
+          ) : (
+            <PrimaryButton title="Open settings" onPress={() => Linking.openSettings()} />
+          )}
+          <SecondaryButton title="Choose label photo" onPress={chooseFromLibrary} />
+          <SecondaryButton title="Back to scan options" onPress={returnToChoose} />
         </View>
       </View>
     );
   }
 
   if (mode === 'barcode') {
+    if (!permission?.granted) {
+      return null;
+    }
+
     return (
       <View style={styles.cameraShell}>
         <CameraView
@@ -218,7 +263,7 @@ export default function ScanScreen({
           onBarcodeScanned={handleBarcodeScanned}
         >
           <View style={styles.cameraOverlay}>
-            <Pressable style={styles.cameraBackButtonDark} onPress={() => setMode('choose')}>
+            <Pressable style={styles.cameraBackButtonDark} onPress={returnToChoose}>
               <Text style={styles.cameraBackTextDark}>Back</Text>
             </Pressable>
             <Text style={styles.cameraGuideText}>Align the barcode inside the frame</Text>
@@ -229,11 +274,15 @@ export default function ScanScreen({
   }
 
   if (mode === 'photo') {
+    if (!permission?.granted) {
+      return null;
+    }
+
     return (
       <View style={styles.cameraShell}>
         <CameraView ref={cameraRef} style={styles.cameraPreview} facing="back">
           <View style={styles.cameraOverlay}>
-            <Pressable style={styles.cameraBackButtonDark} onPress={() => setMode('choose')}>
+            <Pressable style={styles.cameraBackButtonDark} onPress={returnToChoose}>
               <Text style={styles.cameraBackTextDark}>Back</Text>
             </Pressable>
             <View style={styles.cameraGuide}>
@@ -270,8 +319,9 @@ export default function ScanScreen({
         <Text style={styles.permissionBody}>
           Choose how you want to identify the product. Wellumi uses real external sources and only uses AI for label context.
         </Text>
-        <PrimaryButton title="Scan barcode" onPress={() => setMode('barcode')} />
-        <SecondaryButton title="Take label photo" onPress={() => setMode('photo')} />
+        {!!analysisError && <Text style={styles.analysisError}>{analysisError}</Text>}
+        <PrimaryButton title="Scan barcode" onPress={startBarcodeMode} />
+        <SecondaryButton title="Take label photo" onPress={startPhotoMode} />
         <SecondaryButton title="Choose label photo" onPress={chooseFromLibrary} />
       </View>
     </View>

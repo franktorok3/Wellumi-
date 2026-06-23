@@ -4,6 +4,7 @@ const { fetchProductByBarcode } = require('./openFoodFacts');
 const { searchFoodDataCentral } = require('./usda');
 const { analyzeLabelImage } = require('./openai');
 const { uploadScanImage, attachSignedImageUrls } = require('./storage');
+const { verifySaveProductOwnership } = require('../utils/saveProductOwnership');
 const {
   normalizeFromOpenFoodFacts,
   normalizeFromUsda,
@@ -341,6 +342,8 @@ async function listSavedProducts(userId, { limit = 50 } = {}) {
 
 async function saveProductForUser(userId, { productId, analysisId, scanId }) {
   const supabase = getSupabaseAdmin();
+
+  await verifySaveProductOwnership(supabase, userId, { productId, analysisId, scanId });
 
   let existingQuery = supabase
     .from('saved_products')

@@ -2,7 +2,6 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Linking,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -205,8 +204,8 @@ export default function App() {
           Icon={Icon}
           colors={colors}
           items={data.savedItems}
-          loading={data.loading}
-          error={data.error}
+          loading={data.savedLoading}
+          error={data.savedError}
           onRetry={data.hydrate}
           onOpen={(item) => openResult(item.result)}
         />
@@ -220,8 +219,8 @@ export default function App() {
           ScreenHeader={ScreenHeader}
           FeedCard={FeedCard}
           cards={data.feedCards}
-          loading={data.loading}
-          error={data.error}
+          loading={data.feedLoading}
+          error={data.feedError}
           stale={data.feedStale}
           onRetry={data.hydrate}
           onRefresh={async () => {
@@ -259,10 +258,13 @@ export default function App() {
         onResult={openResult}
         feedCards={data.feedCards}
         recentScans={data.recentScans}
-        loading={data.loading}
-        error={data.error}
+        scansLoading={data.scansLoading}
+        feedLoading={data.feedLoading}
+        scansError={data.scansError}
+        feedError={data.feedError}
         authError={auth.error}
-        onRetry={data.hydrate}
+        onRetryScans={data.hydrate}
+        onRetryFeed={data.hydrate}
         onFeedOpen={handleFeedOpen}
         ActionTile={ActionTile}
         SectionTitle={SectionTitle}
@@ -338,10 +340,13 @@ function HomeScreen({
   onResult,
   feedCards,
   recentScans,
-  loading,
-  error,
+  scansLoading,
+  feedLoading,
+  scansError,
+  feedError,
   authError,
-  onRetry,
+  onRetryScans,
+  onRetryFeed,
   onFeedOpen,
   ActionTile,
   SectionTitle,
@@ -374,10 +379,10 @@ function HomeScreen({
       </View>
 
       {!!authError && <Text style={styles.homeError}>{authError}</Text>}
-      {loading ? <Text style={styles.homeMeta}>Loading your scans and feed...</Text> : null}
-      {!!error && (
-        <Pressable onPress={onRetry}>
-          <Text style={styles.homeError}>{error} Tap to retry.</Text>
+      {scansLoading ? <Text style={styles.homeMeta}>Loading your recent scans...</Text> : null}
+      {!!scansError && (
+        <Pressable onPress={onRetryScans}>
+          <Text style={styles.homeError}>{scansError} Tap to retry.</Text>
         </Pressable>
       )}
 
@@ -418,10 +423,16 @@ function HomeScreen({
       </ScrollView>
 
       <SectionTitle title="Your feed" action="See all" onAction={() => onTab('feed')} />
+      {feedLoading ? <Text style={styles.homeMeta}>Loading your feed...</Text> : null}
+      {!!feedError && (
+        <Pressable onPress={onRetryFeed}>
+          <Text style={styles.homeError}>{feedError} Tap to retry feed.</Text>
+        </Pressable>
+      )}
       {feedCards.slice(0, 3).map((card) => (
         <FeedCard key={card.id} card={card} onPress={() => onFeedOpen(card)} />
       ))}
-      {!feedCards.length && !loading ? (
+      {!feedCards.length && !feedLoading && !feedError ? (
         <View style={styles.emptyMiniCard}>
           <Text style={styles.emptyMiniBody}>Scan a product to unlock personalized awareness updates.</Text>
         </View>

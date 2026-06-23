@@ -1,3 +1,5 @@
+const { normalizeExternalDate } = require('../utils/normalizeExternalDate');
+
 const OPEN_FDA_BASE = 'https://api.fda.gov';
 
 async function fetchOpenFdaEnforcement(path, { search, limit = 20 } = {}) {
@@ -37,9 +39,7 @@ function mapFoodRecallToFeedItem(recall) {
       .filter(Boolean)
       .join(' · '),
     source_url: `https://api.fda.gov/food/enforcement.json?search=recall_number:"${encodeURIComponent(recall.recall_number || '')}"`,
-    published_at: recall.recall_initiation_date
-      ? new Date(recall.recall_initiation_date).toISOString()
-      : null,
+    published_at: normalizeExternalDate(recall.recall_initiation_date),
     raw_source_data: recall,
   };
 }
@@ -59,9 +59,7 @@ function mapDrugRecallToFeedItem(recall) {
       .filter(Boolean)
       .join(' · '),
     source_url: `https://api.fda.gov/drug/enforcement.json?search=recall_number:"${encodeURIComponent(recall.recall_number || '')}"`,
-    published_at: recall.recall_initiation_date
-      ? new Date(recall.recall_initiation_date).toISOString()
-      : null,
+    published_at: normalizeExternalDate(recall.recall_initiation_date),
     raw_source_data: recall,
   };
 }

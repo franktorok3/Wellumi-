@@ -4,8 +4,10 @@ const { fetchFoodRecalls, fetchDrugRecalls, mapFoodRecallToFeedItem, mapDrugReca
 const { searchPubMed } = require('./pubmed');
 const { listUserScans, listSavedProducts } = require('./scanWorkflow');
 
+const { hasSuccessfulProvider, isCompleteProviderFailure } = require('../utils/feedRefreshPolicy');
 const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const GENERAL_RECALL_LIMIT = 6;
+const IS_DEV = process.env.NODE_ENV !== 'production';
 
 function scoreMatch(item, interests) {
   const haystack = `${item.title} ${item.summary}`.toLowerCase();
@@ -20,6 +22,23 @@ function scoreMatch(item, interests) {
   }
 
   return { score, matched: [...new Set(matched)] };
+}
+
+function logProviderResult({ name, success, candidateCount, error = null }) {
+  if (!IS_DEV) {
+    return;
+  }
+  console.log('[wellumi-feed] provider', {
+    provider: name,
+    success,
+    candidateCount,
+    error,
+  });
+}
+
+function recordProviderResult(results, name, success, candidateCount, error = null) {
+  results.push({ name, success, candidateCount, error });
+  logProviderResult({ name, success, candidateCount, error });
 }
 
 async function upsertFeedItem(item) {
@@ -96,19 +115,29 @@ async function markFeedRefreshed(userId) {
 
 async function fetchExternalCandidates(interests) {
   const candidates = [];
-  const errors = [];
+  const providerResults = [];
 
   if (interests.length) {
     for (const interest of interests.slice(0, 5)) {
       const term = interest.term.replace(/"/g, '');
+      const providerPrefix = term || 'interest';
+
       try {
         const foodRecalls = await fetchFoodRecalls({
           search: `product_description:"${term}" OR reason_for_recall:"${term}"`,
           limit: 3,
         });
-        candidates.push(...foodRecalls.map(mapFoodRecallToFeedItem));
+        const items = foodRecalls.map(mapFoodRecallToFeedItem);
+        candidates.push(...items);
+        recordProviderResult(providerResults, `openfda_food:${providerPrefix}`, true, items.length);
       } catch (error) {
-        errors.push(error.message);
+        recordProviderResult(
+          providerResults,
+          `openfda_food:${providerPrefix}`,
+          false,
+          0,
+          error.message
+        );
       }
 
       try {
@@ -116,16 +145,25 @@ async function fetchExternalCandidates(interests) {
           search: `product_description:"${term}" OR reason_for_recall:"${term}"`,
           limit: 2,
         });
-        candidates.push(...drugRecalls.map(mapDrugRecallToFeedItem));
+        const items = drugRecalls.map(mapDrugRecallToFeedItem);
+        candidates.push(...items);
+        recordProviderResult(providerResults, `openfda_drug:${providerPrefix}`, true, items.length);
       } catch (error) {
-        errors.push(error.message);
+        recordProviderResult(
+          providerResults,
+          `openfda_drug:${providerPrefix}`,
+          false,
+          0,
+          error.message
+        );
       }
 
       try {
         const pubmedItems = await searchPubMed(term, { retmax: 2 });
         candidates.push(...pubmedItems);
+        recordProviderResult(providerResults, `pubmed:${providerPrefix}`, true, pubmedItems.length);
       } catch (error) {
-        errors.push(error.message);
+        recordProviderResult(providerResults, `pubmed:${providerPrefix}`, false, 0, error.message);
       }
     }
   } else {
@@ -134,13 +172,15 @@ async function fetchExternalCandidates(interests) {
         search: 'report_date:[NOW-30DAYS TO NOW]',
         limit: GENERAL_RECALL_LIMIT,
       });
-      candidates.push(...generalFood.map(mapFoodRecallToFeedItem));
+      const items = generalFood.map(mapFoodRecallToFeedItem);
+      candidates.push(...items);
+      recordProviderResult(providerResults, 'openfda_food:general', true, items.length);
     } catch (error) {
-      errors.push(error.message);
+      recordProviderResult(providerResults, 'openfda_food:general', false, 0, error.message);
     }
   }
 
-  return { candidates, errors };
+  return { candidates, providerResults };
 }
 
 async function refreshUserFeed(userId, { force = false } = {}) {
@@ -154,7 +194,29 @@ async function refreshUserFeed(userId, { force = false } = {}) {
   ]);
 
   const interests = deriveUserInterests({ scans, savedProducts });
-  const { candidates, errors } = await fetchExternalCandidates(interests);
+  const { candidates, providerResults } = await fetchExternalCandidates(interests);
+  const successfulProviders = providerResults.filter((result) => result.success);
+  const failedProviders = providerResults.filter((result) => !result.success);
+  const anyProviderSucceeded = hasSuccessfulProvider(providerResults);
+  const allProvidersFailed = isCompleteProviderFailure(providerResults);
+
+  if (allProvidersFailed) {
+    if (IS_DEV) {
+      console.log('[wellumi-feed] refresh aborted', {
+        reason: 'all_providers_failed',
+        providerCount: providerResults.length,
+        cachedCount: 0,
+      });
+    }
+    return {
+      refreshed: false,
+      stale: true,
+      matchedCount: 0,
+      cachedCount: 0,
+      errors: failedProviders.map((result) => result.error).filter(Boolean),
+      providerResults,
+    };
+  }
 
   const deduped = new Map();
   for (const candidate of candidates) {
@@ -162,31 +224,56 @@ async function refreshUserFeed(userId, { force = false } = {}) {
     if (!deduped.has(key)) deduped.set(key, candidate);
   }
 
+  let cachedCount = 0;
+  const upsertErrors = [];
+
   for (const candidate of deduped.values()) {
-    const feedItem = await upsertFeedItem(candidate);
-    const { score, matched } = scoreMatch(candidate, interests);
+    try {
+      const feedItem = await upsertFeedItem(candidate);
+      const { score, matched } = scoreMatch(candidate, interests);
 
-    const reason =
-      interests.length && matched.length
-        ? `Because you scanned or saved items related to ${matched[0]}`
-        : 'General FDA awareness update (not personalized yet)';
+      const reason =
+        interests.length && matched.length
+          ? `Because you scanned or saved items related to ${matched[0]}`
+          : 'General FDA awareness update (not personalized yet)';
 
-    await upsertUserFeedMatch({
-      userId,
-      feedItemId: feedItem.id,
-      reason,
-      matchedTerms: matched,
-      relevanceScore: interests.length ? score : 1,
+      await upsertUserFeedMatch({
+        userId,
+        feedItemId: feedItem.id,
+        reason,
+        matchedTerms: matched,
+        relevanceScore: interests.length ? score : 1,
+      });
+      cachedCount += 1;
+    } catch (error) {
+      upsertErrors.push(error.message);
+    }
+  }
+
+  if (anyProviderSucceeded) {
+    await markFeedRefreshed(userId);
+  }
+
+  if (IS_DEV) {
+    console.log('[wellumi-feed] refresh complete', {
+      successfulProviders: successfulProviders.length,
+      failedProviders: failedProviders.length,
+      candidateCount: deduped.size,
+      cachedCount,
+      upsertErrors: upsertErrors.length,
     });
   }
 
-  await markFeedRefreshed(userId);
-
   return {
     refreshed: true,
-    stale: errors.length > 0,
+    stale: failedProviders.length > 0 || upsertErrors.length > 0,
     matchedCount: deduped.size,
-    errors,
+    cachedCount,
+    errors: [
+      ...failedProviders.map((result) => result.error).filter(Boolean),
+      ...upsertErrors,
+    ],
+    providerResults,
   };
 }
 
@@ -266,4 +353,5 @@ module.exports = {
   listUserFeed,
   markFeedRead,
   dismissFeedItem,
+  fetchExternalCandidates,
 };

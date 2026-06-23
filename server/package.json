@@ -4,7 +4,13 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "verify:dates": "node scripts/verify-date-normalization.js",
+    "verify:ownership": "node scripts/verify-save-product-ownership.js",
+    "verify:feed": "node scripts/verify-feed-refresh-policy.js",
+    "verify:images": "node scripts/verify-image-validation.js",
+    "verify:client": "node scripts/verify-client-flows.js",
+    "verify": "npm run verify:dates && npm run verify:ownership && npm run verify:feed && npm run verify:images && npm run verify:client"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
