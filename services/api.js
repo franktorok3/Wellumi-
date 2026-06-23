@@ -129,6 +129,64 @@ export async function dismissFeedItem(feedMatchId) {
   return apiRequest(`/feed/${feedMatchId}/dismiss`, { method: 'PATCH' });
 }
 
+export async function fetchMe() {
+  return apiRequest('/me');
+}
+
+export async function fetchPreferences() {
+  const payload = await apiRequest('/preferences');
+  return payload.preferences;
+}
+
+export async function updatePreferences(preferences) {
+  const payload = await apiRequest('/preferences', {
+    method: 'PUT',
+    body: preferences,
+  });
+  return payload.preferences;
+}
+
+export async function startOnboarding() {
+  return apiRequest('/onboarding/start', { method: 'POST' });
+}
+
+export async function saveOnboardingStep(step, draft = {}) {
+  return apiRequest('/onboarding/step', {
+    method: 'PATCH',
+    body: { step, draft },
+  });
+}
+
+export async function completeOnboarding(preferences) {
+  return apiRequest('/onboarding/complete', {
+    method: 'POST',
+    body: preferences,
+  });
+}
+
+export async function fetchInterestProfile() {
+  const payload = await apiRequest('/interest-profile');
+  return payload.interestProfile;
+}
+
+export async function submitStoryFeedback(storyId, feedbackType, metadata = {}) {
+  return apiRequest(`/stories/${storyId}/feedback`, {
+    method: 'POST',
+    body: { feedback_type: feedbackType, metadata },
+  });
+}
+
+export async function upgradeAccount(accountType) {
+  return apiRequest('/account/upgrade', {
+    method: 'POST',
+    body: { account_type: accountType },
+  });
+}
+
+export async function deleteAccount() {
+  return apiRequest('/account', { method: 'DELETE' });
+}
+
 export async function checkApiHealth() {
   return apiRequest('/health', { auth: false });
 }

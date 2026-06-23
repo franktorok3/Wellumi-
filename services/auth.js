@@ -4,9 +4,11 @@ let initPromise = null;
 let cachedSession = null;
 let cachedUserId = null;
 
+const CACHE_PREFIX = 'wellumi.auth.';
+
 function logDevUserId(userId) {
   if (__DEV__ && userId) {
-    console.log('[wellumi-auth] anonymous user id:', userId);
+    console.log('[wellumi-auth] user id:', userId);
   }
 }
 
@@ -15,6 +17,12 @@ export function getAuthState() {
     userId: cachedUserId,
     isReady: Boolean(cachedSession),
   };
+}
+
+export async function clearAuthCache() {
+  cachedSession = null;
+  cachedUserId = null;
+  initPromise = null;
 }
 
 export async function initializeAuth() {
@@ -75,4 +83,36 @@ export async function getAccessToken() {
 export async function getCurrentUserId() {
   await initializeAuth();
   return cachedUserId;
+}
+
+export async function sendEmailCode(email) {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase.auth.signInWithOtp({
+    email: String(email).trim(),
+    options: { shouldCreateUser: true },
+  });
+  if (error) throw new Error(error.message);
+  return true;
+}
+
+export async function verifyEmailCode(email, token) {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: String(email).trim(),
+    token: String(token).trim(),
+    type: 'email',
+  });
+  if (error) throw new Error(error.message);
+  cachedSession = data.session;
+  cachedUserId = data.session?.user?.id || null;
+  return data.session;
+}
+
+export async function signOutAndReset() {
+  const supabase = getSupabaseClient();
+  if (supabase) {
+    await supabase.auth.signOut();
+  }
+  await clearAuthCache();
+  return initializeAuth();
 }

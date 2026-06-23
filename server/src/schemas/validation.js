@@ -49,6 +49,42 @@ const saveProductRequestSchema = z.object({
   scanId: z.string().uuid().optional(),
 });
 
+const preferencesSchema = z.object({
+  selected_interests: z.array(z.string()).default([]),
+  selected_use_cases: z.array(z.string()).default([]),
+  content_balance: z.record(z.string()).default({}),
+  limited_topics: z.array(z.string()).default([]),
+  preferred_feed_mix: z.record(z.unknown()).default({}),
+  notifications: z.record(z.unknown()).default({}),
+});
+
+const onboardingStepSchema = z.object({
+  step: z.string().min(1),
+  draft: preferencesSchema.partial().optional(),
+});
+
+const patchMeSchema = z.object({
+  display_name: z.string().min(1).max(80).optional(),
+  last_seen_at: z.string().optional(),
+});
+
+const storyFeedbackSchema = z.object({
+  feedback_type: z.enum([
+    'opened',
+    'source_opened',
+    'saved',
+    'dismissed',
+    'more_like_this',
+    'less_like_this',
+    'not_relevant',
+  ]),
+  metadata: z.record(z.unknown()).default({}),
+});
+
+const accountUpgradeSchema = z.object({
+  account_type: z.enum(['email', 'apple']),
+});
+
 const openAiLabelSummarySchema = z.object({
   product_name: z.string().min(1),
   detected_label_text: z.string().default(''),
@@ -107,6 +143,11 @@ function validateBody(schema, body) {
 module.exports = {
   analyzeLabelRequestSchema,
   saveProductRequestSchema,
+  preferencesSchema,
+  onboardingStepSchema,
+  patchMeSchema,
+  storyFeedbackSchema,
+  accountUpgradeSchema,
   openAiLabelSummarySchema,
   openFoodFactsResponseSchema,
   usdaSearchResponseSchema,

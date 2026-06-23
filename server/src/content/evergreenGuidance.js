@@ -124,6 +124,7 @@ const EVERGREEN_GUIDANCE = [
 ];
 
 function toSourceRecord(entry) {
+  const now = new Date().toISOString();
   return {
     provider: entry.provider,
     source_type: entry.source_type,
@@ -140,7 +141,10 @@ function toSourceRecord(entry) {
     freshness_score: entry.freshness_score,
     safety_relevance: entry.safety_relevance,
     is_evergreen: true,
-    last_reviewed_at: normalizeExternalDate(entry.last_reviewed_at),
+    curated_at: now,
+    verified_at: now,
+    verification_status: 'manually_curated',
+    source_owner: 'wellumi_editorial',
   };
 }
 

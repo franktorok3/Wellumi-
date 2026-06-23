@@ -12,12 +12,15 @@ import {
 } from 'react-native';
 import { ErrorState, LoadingState } from './components/StateViews';
 import { useAuth } from './hooks/useAuth';
+import { useProfile, clearProfileCache } from './hooks/useProfile';
 import { useWellumiData } from './hooks/useWellumiData';
 import FeedScreen, { FeedDetailScreen, openFeedSource } from './screens/FeedScreen';
 import LibraryScreen from './screens/LibraryScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
 import ResultScreen from './screens/ResultScreen';
 import ScanScreen from './screens/ScanScreen';
-import { markFeedRead, saveProduct } from './services/api';
+import { markFeedRead, saveProduct, submitStoryFeedback } from './services/api';
+import { sendEmailCode, verifyEmailCode, signOutAndReset } from './services/auth';
 import { mapSavedProductToLibraryItem } from './services/mappers';
 import { colors } from './theme/tokens';
 
@@ -88,6 +91,7 @@ function SplashScreen() {
 
 export default function App() {
   const auth = useAuth();
+  const profileState = useProfile({ enabled: auth.isReady });
   const data = useWellumiData();
   const [activeTab, setActiveTab] = useState('home');
   const [showResult, setShowResult] = useState(false);
@@ -95,12 +99,22 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [currentResult, setCurrentResult] = useState(null);
   const [currentFeedItem, setCurrentFeedItem] = useState(null);
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
+  const [onboardingError, setOnboardingError] = useState('');
 
   useEffect(() => {
     if (auth.isReady) {
       data.hydrate();
     }
   }, [auth.isReady]);
+
+  useEffect(() => {
+    if (auth.isReady && profileState.profile?.onboarding_status === 'not_started') {
+      profileState.beginOnboarding().catch((error) => {
+        if (__DEV__) console.log('[wellumi-onboarding] start failed', error?.message);
+      });
+    }
+  }, [auth.isReady, profileState.profile?.onboarding_status]);
 
   const currentResultSaved = data.savedItems.some(
     (item) =>
@@ -156,6 +170,19 @@ export default function App() {
           item={currentFeedItem}
           onBack={() => setShowFeedDetail(false)}
           onOpenSource={openFeedSource}
+          onFeedback={async (feedbackType) => {
+            try {
+              await submitStoryFeedback(currentFeedItem.storyId, feedbackType, {
+                storyCategory: currentFeedItem.storyCategory,
+                topic: currentFeedItem.lifestyleCategory,
+              });
+              if (feedbackType === 'not_relevant' || feedbackType === 'less_like_this') {
+                await data.reloadFeed();
+              }
+            } catch (error) {
+              Alert.alert('Could not save feedback', error?.message || 'Please try again.');
+            }
+          }}
           GuardrailNote={GuardrailNote}
         />
       );
@@ -247,6 +274,15 @@ export default function App() {
           savedCount={data.savedItems.length}
           feedCount={data.feedCards.length}
           userId={auth.userId}
+          profile={profileState.profile}
+          preferences={profileState.preferences}
+          interestProfile={profileState.interestProfile}
+          onSignOut={async () => {
+            await clearProfileCache();
+            await signOutAndReset();
+            auth.retry();
+            data.hydrate();
+          }}
         />
       );
     }
@@ -320,6 +356,58 @@ export default function App() {
           message={auth.error}
           onRetry={auth.retry}
           styles={styles}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (auth.isReady && profileState.profile && profileState.needsOnboarding) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <StatusBar style="dark" />
+        <OnboardingScreen
+          styles={styles}
+          initialStep={profileState.onboardingStep || 'welcome'}
+          draft={profileState.preferences}
+          loading={onboardingBusy}
+          error={onboardingError}
+          onSaveStep={async (step, draft) => {
+            setOnboardingError('');
+            await profileState.persistStep(step, draft);
+          }}
+          onCompleteGuest={async (preferences) => {
+            try {
+              setOnboardingBusy(true);
+              setOnboardingError('');
+              await profileState.finishOnboarding(preferences);
+              await data.reloadFeed();
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not complete onboarding.');
+            } finally {
+              setOnboardingBusy(false);
+            }
+          }}
+          onCompleteEmail={async ({ email, code, stage, preferences }) => {
+            try {
+              setOnboardingBusy(true);
+              setOnboardingError('');
+              if (stage === 'send') {
+                await sendEmailCode(email);
+                return;
+              }
+              await verifyEmailCode(email, code);
+              await profileState.finishOnboarding(preferences);
+              await data.reloadFeed();
+            } catch (error) {
+              setOnboardingError(error?.message || 'Email verification failed.');
+              throw error;
+            } finally {
+              setOnboardingBusy(false);
+            }
+          }}
+          onSignInExisting={() => {
+            setOnboardingError('Use email verification on the final step to restore an existing account.');
+          }}
         />
       </SafeAreaView>
     );
@@ -467,27 +555,54 @@ function ProfileScreen({
   savedCount,
   feedCount,
   userId,
+  profile,
+  preferences,
+  interestProfile,
+  onSignOut,
 }) {
+  const accountLabel =
+    profile?.account_type === 'email'
+      ? 'Email account'
+      : profile?.account_type === 'apple'
+        ? 'Apple account'
+        : 'Guest account';
+
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
-      <ScreenHeader title="Profile" subtitle="Your anonymous Wellumi account and activity." />
+      <ScreenHeader title="Profile" subtitle="Your Wellumi account, preferences, and learning summary." />
       <View style={styles.profileCard}>
         <View style={styles.profileSummaryRow}>
           <View style={styles.largeProfileBubble}>
             <Icon name="profile" color={colors.greenDark} size={32} />
           </View>
           <View style={styles.profileSummaryText}>
-            <Text style={styles.profileName}>Anonymous Wellumi member</Text>
+            <Text style={styles.profileName}>{profile?.display_name || 'Wellumi member'}</Text>
             <Text style={styles.profileCaption}>
-              {scanCount} scans · {savedCount} saved · {feedCount} feed items
+              {accountLabel} · {scanCount} scans · {savedCount} saved · {feedCount} feed items
             </Text>
           </View>
         </View>
       </View>
       <InfoCard
-        title="Data & privacy"
-        body="Your scans, analyses, saved products, and feed matches are stored securely in Supabase. Wellumi uses an anonymous account on this device."
+        title="Selected interests"
+        body={(preferences?.selected_interests || []).join(', ') || 'Complete onboarding to set interests.'}
       />
+      <InfoCard
+        title="Wellumi is learning from"
+        body={
+          (interestProfile?.topics || [])
+            .slice(0, 4)
+            .map((item) => item.sourceSummary?.[0] || item.topic)
+            .join(' · ') || 'Your onboarding choices and product activity will appear here.'
+        }
+      />
+      <InfoCard
+        title="Data & privacy"
+        body="Your scans, analyses, saved products, preferences, and feed matches are stored in Supabase. Guest activity is tied to this device identity until you upgrade."
+      />
+      <Pressable style={styles.secondaryButton} onPress={onSignOut}>
+        <Text style={styles.secondaryButtonText}>Sign out</Text>
+      </Pressable>
       {__DEV__ && !!userId ? (
         <InfoCard title="Development user ID" body={userId} />
       ) : null}
@@ -1203,6 +1318,55 @@ const styles = StyleSheet.create({
     ...typography.micro,
     marginTop: spacing.xs,
   },
+  feedFeedbackRow: { marginTop: spacing.sm, gap: spacing.sm },
+  feedFeedbackAction: { color: colors.green, ...typography.caption, fontWeight: '700' },
+  onboardingScroll: {
+    paddingHorizontal: layout.screenPaddingX,
+    paddingTop: layout.screenPaddingTop,
+    paddingBottom: layout.screenPaddingBottom,
+    gap: spacing.lg,
+  },
+  onboardingTitle: { color: colors.greenDark, ...typography.displaySm, marginBottom: spacing.sm },
+  onboardingBody: { color: colors.muted, ...typography.body, marginBottom: spacing.lg },
+  onboardingChipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
+  onboardingChip: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.white,
+  },
+  onboardingChipSelected: { backgroundColor: colors.greenSoft, borderColor: colors.green },
+  onboardingChipText: { color: colors.greenDark, ...typography.caption },
+  onboardingChipTextSelected: { color: colors.green, fontWeight: '800' },
+  balanceRow: { marginBottom: spacing.md },
+  balanceLabel: { color: colors.greenDark, ...typography.bodyStrong, marginBottom: spacing.sm },
+  balanceOptions: { flexDirection: 'row', gap: spacing.sm },
+  balancePill: {
+    flex: 1,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  balancePillSelected: { backgroundColor: colors.green, borderColor: colors.green },
+  balancePillText: { color: colors.greenDark, ...typography.caption, textTransform: 'capitalize' },
+  balancePillTextSelected: { color: colors.white, fontWeight: '800' },
+  emailBlock: { marginTop: spacing.md },
+  emailInput: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.white,
+    color: colors.greenDark,
+  },
+  onboardingFinePrint: { color: colors.mutedLight, ...typography.caption, marginTop: spacing.md },
+  onboardingError: { color: '#B42318', ...typography.caption, marginTop: spacing.md },
   filterRow: { marginHorizontal: -layout.screenPaddingX, marginBottom: spacing.lg - 2 },
   filterRowContent: { paddingHorizontal: layout.screenPaddingX, gap: spacing.sm },
   filterChip: {

@@ -65,6 +65,7 @@ export function FeedDetailScreen({
   item,
   onBack,
   onOpenSource,
+  onFeedback,
   GuardrailNote,
 }) {
   if (!item) return null;
@@ -122,6 +123,24 @@ export function FeedDetailScreen({
               </Text>
             </Pressable>
           ))}
+        </View>
+      ) : null}
+
+      {item.isPersonalized && onFeedback ? (
+        <View style={styles.infoCard}>
+          <Text style={styles.cardTitle}>Why am I seeing this?</Text>
+          <Text style={styles.cardBody}>{item.reasonLabel}</Text>
+          <View style={styles.feedFeedbackRow}>
+            <Pressable onPress={() => onFeedback('more_like_this')}>
+              <Text style={styles.feedFeedbackAction}>Show me more like this</Text>
+            </Pressable>
+            <Pressable onPress={() => onFeedback('less_like_this')}>
+              <Text style={styles.feedFeedbackAction}>Show me less like this</Text>
+            </Pressable>
+            <Pressable onPress={() => onFeedback('not_relevant')}>
+              <Text style={styles.feedFeedbackAction}>Not relevant</Text>
+            </Pressable>
+          </View>
         </View>
       ) : null}
 

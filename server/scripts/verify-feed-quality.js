@@ -82,7 +82,7 @@ const brandOnlyHistorical = evaluateSafetyEligibility(
     raw_payload: {
       ...staleSabraRecall.raw_payload,
       status: 'Ongoing',
-      product_description: 'Sabra Roasted Red Pepper Hummus',
+      product_description: 'Sabra TZatziki Dip',
     },
   },
   sabraProfile

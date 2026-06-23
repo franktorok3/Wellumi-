@@ -12,8 +12,11 @@
     "verify:client": "node scripts/verify-client-flows.js",
     "verify:wellness": "node scripts/verify-wellness-content.js",
     "verify:feed-quality": "node scripts/verify-feed-quality.js",
+    "verify:feed-lifecycle": "node scripts/verify-feed-lifecycle.js",
+    "verify:accounts": "node scripts/verify-accounts-preferences.js",
     "demo:live-feed": "node scripts/demo-live-feed-quality.js",
-    "verify": "npm run verify:dates && npm run verify:ownership && npm run verify:feed && npm run verify:images && npm run verify:client && npm run verify:wellness && npm run verify:feed-quality"
+    "reset:user-feed": "node scripts/reset-user-feed.js",
+    "verify": "npm run verify:dates && npm run verify:ownership && npm run verify:feed && npm run verify:images && npm run verify:client && npm run verify:wellness && npm run verify:feed-quality && npm run verify:feed-lifecycle && npm run verify:accounts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

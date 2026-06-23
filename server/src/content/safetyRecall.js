@@ -38,12 +38,42 @@ function normalizeRecallRecord(record) {
   };
 }
 
+function normalizeBrand(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractProductFamily(productName) {
+  const tokens = tokenize(productName).filter((token) => token.length >= 4);
+  return tokens.slice(0, 3);
+}
+
 function classifyRecallMatch(record, profile) {
   const text = `${record.recall_product_description || ''} ${record.summary || ''} ${record.title || ''}`.toLowerCase();
-  const brand = String(profile?.brand || '').toLowerCase();
+  const brand = normalizeBrand(profile?.brand);
   const productName = String(profile?.productName || '').toLowerCase();
-  const productTokens = tokenize(productName).filter((token) => token.length >= 4);
+  const barcode = String(profile?.barcode || profile?.productBarcode || '').trim();
+  const raw = record.raw_payload || {};
+  const recallCodes = [raw.code_info, raw.product_description, raw.product_quantity]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
 
+  if (barcode && recallCodes.includes(barcode)) {
+    return {
+      matchType: 'exact_product',
+      confidence: 0.98,
+      matchedFields: ['barcode'],
+      explanation: 'Recall record references the scanned barcode or UPC.',
+    };
+  }
+
+  const productTokens = extractProductFamily(productName).filter(
+    (token) => !brand || !brand.split(' ').includes(token)
+  );
   let productTokenHits = 0;
   for (const token of productTokens) {
     if (text.includes(token)) productTokenHits += 1;
@@ -54,15 +84,56 @@ function classifyRecallMatch(record, profile) {
     productName &&
     text.includes(productName) &&
     productTokenHits >= Math.min(2, productTokens.length || 1);
+
+  const familyHit =
+    brandHit &&
+    productTokenHits >= 1 &&
+    productTokens.some((token) => text.includes(token)) &&
+    !exactProductHit;
+
   const categoryHit =
     profile?.productCategory === 'packaged_food' &&
     /hummus|dip|spread|chickpea/i.test(text) &&
     !brandHit;
 
-  if (exactProductHit && brandHit) return 'exact_product';
-  if (brandHit) return 'brand_only';
-  if (categoryHit) return 'category_only';
-  return 'general';
+  if (exactProductHit && brandHit) {
+    return {
+      matchType: 'exact_product',
+      confidence: 0.9,
+      matchedFields: ['brand', 'product_name'],
+      explanation: 'Recall description closely matches the scanned product name.',
+    };
+  }
+  if (familyHit) {
+    return {
+      matchType: 'product_family',
+      confidence: 0.72,
+      matchedFields: ['brand', 'product_family'],
+      explanation: 'Recall appears to involve the same brand and product family.',
+    };
+  }
+  if (brandHit) {
+    return {
+      matchType: 'brand_only',
+      confidence: 0.55,
+      matchedFields: ['brand'],
+      explanation: 'Recall mentions the brand but not the exact scanned product.',
+    };
+  }
+  if (categoryHit) {
+    return {
+      matchType: 'category_only',
+      confidence: 0.4,
+      matchedFields: ['category'],
+      explanation: 'Recall is category-related, not a direct product match.',
+    };
+  }
+  return {
+    matchType: 'general',
+    confidence: 0.2,
+    matchedFields: [],
+    explanation: 'Weak or indirect recall relationship.',
+  };
 }
 
 function isRecallActive(status) {
@@ -74,7 +145,8 @@ function isRecallActive(status) {
 function evaluateSafetyEligibility(record, profile) {
   const normalized = normalizeRecallRecord(record);
   const ageDays = daysSince(normalized.published_at);
-  const matchType = classifyRecallMatch(normalized, profile);
+  const match = classifyRecallMatch(normalized, profile);
+  const matchType = match.matchType;
   const active = isRecallActive(normalized.recall_status);
 
   if (ageDays != null && ageDays > SAFETY_ALERT_MAX_DAYS) {
@@ -83,6 +155,9 @@ function evaluateSafetyEligibility(record, profile) {
         displayEligible: true,
         showSafetyBadge: true,
         matchType,
+        matchConfidence: match.confidence,
+        matchedFields: match.matchedFields,
+        matchExplanation: match.explanation,
         historical: true,
         ageDays,
         normalized,
@@ -151,6 +226,9 @@ function buildSafetyStoryTitle({ matchType, profile, record, historical = false 
     }
     return `Recall notice involving a ${brand} product you scanned`;
   }
+  if (matchType === 'product_family') {
+    return `Recall update involving a ${brand} product family you scanned`;
+  }
   if (matchType === 'brand_only') {
     if (historical && dateLabel) {
       return `An older ${brand} recall to be aware of (${dateLabel})`;
@@ -170,6 +248,9 @@ function buildSafetyDeck({ matchType, profile, record, historical = false }) {
     return historical
       ? `This FDA record from ${record.recall_initiation_date?.slice(0, 10) || 'a prior date'} describes a recall affecting ${profile?.productName || 'a product you scanned'}. Status: ${status}.`
       : `FDA reports a recall that appears to match ${profile?.productName || 'a product you scanned'}. Status: ${status}.`;
+  }
+  if (matchType === 'product_family') {
+    return `FDA lists a recall that may involve the same ${profile?.brand || 'brand'} product family. Review the product description. Status: ${status}.`;
   }
   if (matchType === 'brand_only') {
     return `FDA lists a ${profile?.brand || 'brand'} recall. Review the product description to see whether it matches what you scanned. Status: ${status}.`;

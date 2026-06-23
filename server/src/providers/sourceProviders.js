@@ -77,6 +77,7 @@ async function collectSourcesForTopic(topic, context = {}) {
     providerResults.push({
       provider: `official_guidance:${topic.id}`,
       success: true,
+      evergreen: true,
       candidateCount: evergreen.length,
     });
   }

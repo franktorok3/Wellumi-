@@ -143,15 +143,30 @@ function computeTriggerScore({
   };
 }
 
-function buildPersonalizationReason({ profile, aggregates, storyCategory, signals = [], safetyContext = null }) {
+function buildPersonalizationReason({
+  profile,
+  aggregates,
+  storyCategory,
+  signals = [],
+  safetyContext = null,
+  interestProfile = null,
+}) {
   if (safetyContext?.matchType === 'exact_product' && profile?.productName) {
     return `Recall notice involving ${profile.productName}, a product you scanned`;
+  }
+  if (safetyContext?.matchType === 'product_family' && profile?.brand) {
+    return `Safety update involving a ${profile.brand} product family you scanned`;
   }
   if (safetyContext?.matchType === 'brand_only' && profile?.brand) {
     return `An older ${profile.brand} recall to review against what you scanned`;
   }
   if (safetyContext?.matchType === 'category_only') {
-    return 'A recent hummus recall update';
+    return 'A recent category recall update';
+  }
+
+  const topExplicit = (interestProfile?.topics || []).find((item) => item.explicitWeight > 0);
+  if (topExplicit && storyCategory === 'everyday_wellness') {
+    return `Based on your interest in ${topExplicit.topic.replace(/_/g, ' ')}`;
   }
   if (signals.includes('direct_product_recall_match') && profile?.brand) {
     return `A safety update involving ${profile.brand}, a brand you scanned`;
