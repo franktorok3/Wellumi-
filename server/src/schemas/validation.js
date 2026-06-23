@@ -89,6 +89,10 @@ const completeMigrationSchema = z.object({
   migration_token: z.string().min(32),
 });
 
+const migrationPreviewSchema = z.object({
+  migration_token: z.string().min(32),
+});
+
 const deleteAccountSchema = z.object({
   confirm: z.literal(true),
   confirmation_phrase: z.literal('DELETE'),
@@ -158,6 +162,7 @@ module.exports = {
   storyFeedbackSchema,
   accountUpgradeSchema,
   completeMigrationSchema,
+  migrationPreviewSchema,
   deleteAccountSchema,
   openAiLabelSummarySchema,
   openFoodFactsResponseSchema,

@@ -45,7 +45,7 @@ async function createMigrationToken(guestUserId) {
   };
 }
 
-async function completeGuestMigration(destinationUserId, plainToken) {
+async function completeGuestMigration(destinationUserId, plainToken, { testAbortAt = null } = {}) {
   if (!plainToken) {
     const error = new Error('migration_token is required.');
     error.statusCode = 400;
@@ -55,10 +55,15 @@ async function completeGuestMigration(destinationUserId, plainToken) {
   const supabase = getSupabaseAdmin();
   const tokenHash = hashToken(plainToken);
 
-  const { data, error } = await supabase.rpc('complete_guest_account_upgrade', {
+  const rpcArgs = {
     p_token_hash: tokenHash,
     p_destination_user_id: destinationUserId,
-  });
+  };
+  if (testAbortAt) {
+    rpcArgs.p_test_abort_at = testAbortAt;
+  }
+
+  const { data, error } = await supabase.rpc('complete_guest_account_upgrade', rpcArgs);
   if (error) {
     const migrationError = new Error(error.message || 'Guest migration failed.');
     migrationError.statusCode = 400;

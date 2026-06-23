@@ -1,5 +1,6 @@
 import {
   completeGuestMigration,
+  fetchMigrationPreview,
   requestMigrationToken,
   upgradeAccount,
 } from './api';
@@ -27,13 +28,8 @@ export async function sendEmailUpgradeCode(email) {
   return handshake;
 }
 
-export async function verifyEmailAndMigrate({
-  email,
-  code,
-  guestUserId,
-  migrationToken,
-  skipMigration = false,
-}) {
+export async function verifyEmailOnly({ email, code }) {
+  const guestUserId = await getCurrentUserId();
   const session = await verifyEmailCode(email, code);
   await refreshAuthState();
   const permanentUserId = session?.user?.id;
@@ -42,28 +38,37 @@ export async function verifyEmailAndMigrate({
     throw new Error('Email verification did not return a user session.');
   }
 
-  if (guestUserId === permanentUserId) {
+  const linked = guestUserId === permanentUserId;
+  if (linked) {
     await upgradeAccount('email');
-    return {
-      linked: true,
-      migrated: false,
-      guestUserId,
-      permanentUserId,
-      session,
-    };
   }
 
-  if (skipMigration) {
-    return {
-      linked: false,
-      migrated: false,
-      guestUserId,
-      permanentUserId,
-      session,
-      guestDataPreserved: true,
-    };
-  }
+  return {
+    guestUserId,
+    permanentUserId,
+    session,
+    linked,
+    needsMerge: !linked,
+  };
+}
 
+export async function loadMigrationPreview(migrationToken) {
+  const payload = await fetchMigrationPreview(migrationToken);
+  return payload.preview;
+}
+
+export async function skipGuestMerge(guestUserId) {
+  if (guestUserId) {
+    await clearUserCache(guestUserId);
+  }
+  return {
+    migrated: false,
+    guestDataPreserved: true,
+    guestUserId,
+  };
+}
+
+export async function executeGuestMerge({ migrationToken, guestUserId }) {
   if (!migrationToken) {
     throw new Error('A migration token is required to move guest activity to this account.');
   }
@@ -79,24 +84,38 @@ export async function verifyEmailAndMigrate({
   }
 
   return {
-    linked: false,
     migrated: true,
-    guestUserId,
-    permanentUserId,
-    session,
+    guestUserId: migration.guest_user_id || guestUserId,
+    permanentUserId: migration.destination_user_id,
     migration,
   };
 }
 
-export async function mergeGuestIntoCurrentAccount(migrationToken) {
-  const permanentUserId = await getCurrentUserId();
-  const migration = await completeGuestMigration(migrationToken);
-  if (!migration.verification?.ok) {
-    throw new Error('Guest migration verification failed.');
+/** @deprecated Use verifyEmailOnly + executeGuestMerge after explicit approval */
+export async function verifyEmailAndMigrate({
+  email,
+  code,
+  guestUserId,
+  migrationToken,
+  skipMigration = false,
+}) {
+  const verified = await verifyEmailOnly({ email, code });
+  if (verified.linked || skipMigration) {
+    if (skipMigration && verified.needsMerge) {
+      await skipGuestMerge(verified.guestUserId);
+    }
+    return {
+      ...verified,
+      migrated: false,
+      guestDataPreserved: skipMigration && verified.needsMerge,
+    };
   }
-  await upgradeAccount('email');
-  if (migration.guest_user_id) {
-    await clearUserCache(migration.guest_user_id);
-  }
-  return { permanentUserId, migration };
+  return executeGuestMerge({
+    migrationToken,
+    guestUserId: guestUserId || verified.guestUserId,
+  });
+}
+
+export async function mergeGuestIntoCurrentAccount(migrationToken, guestUserId) {
+  return executeGuestMerge({ migrationToken, guestUserId });
 }

@@ -15,6 +15,7 @@
     "verify:feed-lifecycle": "node scripts/verify-feed-lifecycle.js",
     "verify:accounts": "node scripts/verify-accounts-preferences.js",
     "verify:guest-upgrade": "node scripts/verify-guest-upgrade.js",
+    "verify:guest-migration-rpc": "node scripts/verify-guest-migration-rpc.integration.js",
     "verify:user-cache": "node scripts/verify-user-cache.js",
     "verify:source-metadata": "node scripts/verify-source-metadata.js",
     "verify:rls": "node scripts/verify-rls.js",

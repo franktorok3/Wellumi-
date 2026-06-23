@@ -72,7 +72,8 @@ $$;
 -- ---------------------------------------------------------------------------
 create or replace function public.complete_guest_account_upgrade(
   p_token_hash text,
-  p_destination_user_id uuid
+  p_destination_user_id uuid,
+  p_test_abort_at text default null
 )
 returns jsonb
 language plpgsql
@@ -287,6 +288,10 @@ begin
 
   delete from public.user_preferences where user_id = v_guest_user_id and user_id <> p_destination_user_id;
 
+  if p_test_abort_at = 'after_preferences' then
+    raise exception 'wellumi_test_abort_after_preferences';
+  end if;
+
   -- user_interest_signals: merge on uniqueness key; strongest explicit negative wins
   insert into public.user_interest_signals (
     user_id,
@@ -342,6 +347,10 @@ begin
     metadata = user_interest_signals.metadata || excluded.metadata;
 
   delete from public.user_interest_signals where user_id = v_guest_user_id;
+
+  if p_test_abort_at = 'after_signals' then
+    raise exception 'wellumi_test_abort_after_signals';
+  end if;
 
   -- saved_products: dedupe by destination user + product; keep earliest save date
   insert into public.saved_products (user_id, product_id, created_at)
@@ -413,6 +422,10 @@ begin
   -- scans and analyses: transfer ownership, preserve ids
   update public.scans set user_id = p_destination_user_id where user_id = v_guest_user_id;
   update public.analyses set user_id = p_destination_user_id where user_id = v_guest_user_id;
+
+  if p_test_abort_at = 'after_scans' then
+    raise exception 'wellumi_test_abort_after_scans';
+  end if;
 
   -- product_interest_profiles: dedupe by user + product
   insert into public.product_interest_profiles (

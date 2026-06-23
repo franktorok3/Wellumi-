@@ -76,7 +76,7 @@ Preference writes should go through authenticated server endpoints so validation
 
 | Operation | Client | Server |
 |-----------|--------|--------|
-| All | **Denied** | `POST /account/migration-token`, migration RPC |
+| All | **Denied** | `POST /account/migration-token`, `POST /account/migration-preview`, migration RPC |
 
 ## Shared catalog tables
 

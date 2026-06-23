@@ -10,6 +10,7 @@ const {
   storyFeedbackSchema,
   accountUpgradeSchema,
   completeMigrationSchema,
+  migrationPreviewSchema,
   deleteAccountSchema,
 } = require('../schemas/validation');
 const {
@@ -43,6 +44,7 @@ const {
   createMigrationToken,
   completeGuestMigration,
 } = require('../services/guestMigrationService');
+const { previewGuestMigration } = require('../services/guestMigrationPreview');
 const { hasSupabaseConfig, hasOpenAIConfig } = require('../config');
 
 const router = express.Router();
@@ -228,6 +230,17 @@ router.post('/account/migration-token', requireAuthUser, async (req, res) => {
   } catch (error) {
     const statusCode = error.statusCode || 500;
     return res.status(statusCode).json({ error: error.message || 'Could not create migration token.' });
+  }
+});
+
+router.post('/account/migration-preview', requireAuthUser, async (req, res) => {
+  try {
+    const body = validateBody(migrationPreviewSchema, req.body || {});
+    const preview = await previewGuestMigration(req.user.id, body.migration_token);
+    return res.json({ preview });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ error: error.message || 'Could not preview guest migration.' });
   }
 });
 

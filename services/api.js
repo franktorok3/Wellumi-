@@ -194,6 +194,13 @@ export async function completeGuestMigration(migrationToken) {
   });
 }
 
+export async function fetchMigrationPreview(migrationToken) {
+  return apiRequest('/account/migration-preview', {
+    method: 'POST',
+    body: { migration_token: migrationToken },
+  });
+}
+
 export async function deleteAccount({ confirmationPhrase = 'DELETE' } = {}) {
   return apiRequest('/account', {
     method: 'DELETE',

@@ -18,13 +18,16 @@ import FeedScreen, { FeedDetailScreen, openFeedSource } from './screens/FeedScre
 import LibraryScreen from './screens/LibraryScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import SignInScreen from './screens/SignInScreen';
+import GuestMergePromptScreen from './screens/GuestMergePromptScreen';
 import ResultScreen from './screens/ResultScreen';
 import ScanScreen from './screens/ScanScreen';
 import { markFeedRead, saveProduct, submitStoryFeedback } from './services/api';
 import {
-  mergeGuestIntoCurrentAccount,
+  executeGuestMerge,
+  loadMigrationPreview,
   sendEmailUpgradeCode,
-  verifyEmailAndMigrate,
+  skipGuestMerge,
+  verifyEmailOnly,
 } from './services/accountTransition';
 import { signOutAndReset } from './services/auth';
 import { clearUserCache } from './services/userCache';
@@ -105,6 +108,10 @@ export default function App() {
   const [showFeedDetail, setShowFeedDetail] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [showSignIn, setShowSignIn] = useState(false);
+  const [signInSendingCode, setSignInSendingCode] = useState(false);
+  const [signInVerifying, setSignInVerifying] = useState(false);
+  const [signInMerging, setSignInMerging] = useState(false);
+  const [pendingMerge, setPendingMerge] = useState(null);
   const [migrationHandshake, setMigrationHandshake] = useState(null);
   const [currentResult, setCurrentResult] = useState(null);
   const [currentFeedItem, setCurrentFeedItem] = useState(null);
@@ -413,67 +420,138 @@ export default function App() {
         <StatusBar style="dark" />
         <SignInScreen
           styles={styles}
-          loading={onboardingBusy}
+          sendingCode={signInSendingCode}
+          verifying={signInVerifying}
+          merging={signInMerging}
           error={onboardingError}
           guestUserId={auth.userId}
           onSendCode={async (email) => {
-            setOnboardingBusy(true);
+            setSignInSendingCode(true);
             setOnboardingError('');
             try {
-              auth.beginTransition();
               const handshake = await sendEmailUpgradeCode(email);
               setMigrationHandshake(handshake);
               return handshake;
             } catch (error) {
               setOnboardingError(error?.message || 'Could not send verification code.');
-              auth.endTransition();
               throw error;
             } finally {
-              setOnboardingBusy(false);
+              setSignInSendingCode(false);
             }
           }}
-          onVerifyCode={async (payload) => {
-            setOnboardingBusy(true);
+          onVerifyCode={async ({ email, code }) => {
+            setSignInVerifying(true);
             setOnboardingError('');
             try {
               auth.beginTransition();
               data.clear();
               profileState.reset();
-              const result = await verifyEmailAndMigrate(payload);
+              const result = await verifyEmailOnly({ email, code });
               await auth.refresh();
               await profileState.refresh();
               await data.hydrate();
-              auth.endTransition();
               return result;
             } catch (error) {
               setOnboardingError(error?.message || 'Could not verify email.');
-              auth.endTransition();
               throw error;
             } finally {
-              setOnboardingBusy(false);
+              auth.endTransition();
+              setSignInVerifying(false);
             }
           }}
-          onMergeGuest={async (migrationToken) => {
-            setOnboardingBusy(true);
+          onFetchPreview={async (migrationToken) => loadMigrationPreview(migrationToken)}
+          onMergeGuest={async ({ migrationToken, guestUserId }) => {
+            setSignInMerging(true);
             setOnboardingError('');
             try {
               auth.beginTransition();
-              await mergeGuestIntoCurrentAccount(migrationToken);
+              await executeGuestMerge({ migrationToken, guestUserId });
               await auth.refresh();
               await profileState.refresh();
               await data.hydrate();
+              setShowSignIn(false);
             } catch (error) {
               setOnboardingError(error?.message || 'Could not merge guest activity.');
               throw error;
             } finally {
               auth.endTransition();
-              setOnboardingBusy(false);
+              setSignInMerging(false);
+            }
+          }}
+          onSkipMerge={async (guestUserId) => {
+            setOnboardingError('');
+            try {
+              auth.beginTransition();
+              await skipGuestMerge(guestUserId);
+              setShowSignIn(false);
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not continue without merging.');
+              throw error;
+            } finally {
+              auth.endTransition();
             }
           }}
           onBack={() => {
             setShowSignIn(false);
             setOnboardingError('');
-            auth.endTransition();
+          }}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (pendingMerge) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <StatusBar style="dark" />
+        <GuestMergePromptScreen
+          styles={styles}
+          preview={pendingMerge.preview}
+          loading={onboardingBusy}
+          error={onboardingError}
+          onMerge={async () => {
+            try {
+              setOnboardingBusy(true);
+              setOnboardingError('');
+              auth.beginTransition();
+              await executeGuestMerge({
+                migrationToken: pendingMerge.migrationToken,
+                guestUserId: pendingMerge.guestUserId,
+              });
+              await auth.refresh();
+              if (pendingMerge.preferences) {
+                await profileState.finishOnboarding(pendingMerge.preferences);
+              } else {
+                await profileState.refresh();
+              }
+              await data.hydrate();
+              setPendingMerge(null);
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not merge guest activity.');
+            } finally {
+              auth.endTransition();
+              setOnboardingBusy(false);
+            }
+          }}
+          onSkip={async () => {
+            try {
+              setOnboardingBusy(true);
+              setOnboardingError('');
+              auth.beginTransition();
+              await skipGuestMerge(pendingMerge.guestUserId);
+              if (pendingMerge.preferences) {
+                await profileState.finishOnboarding(pendingMerge.preferences);
+              } else {
+                await profileState.refresh();
+              }
+              await data.hydrate();
+              setPendingMerge(null);
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not continue without merging.');
+            } finally {
+              auth.endTransition();
+              setOnboardingBusy(false);
+            }
           }}
         />
       </SafeAreaView>
@@ -511,10 +589,8 @@ export default function App() {
               setOnboardingBusy(true);
               setOnboardingError('');
               if (stage === 'send') {
-                auth.beginTransition();
                 const handshake = await sendEmailUpgradeCode(email);
                 setMigrationHandshake(handshake);
-                auth.endTransition();
                 return;
               }
 
@@ -522,24 +598,28 @@ export default function App() {
               data.clear();
               profileState.reset();
 
-              const alreadyOnboarded = profileState.profile?.onboarding_status === 'completed';
-              const migration = await verifyEmailAndMigrate({
-                email,
-                code,
-                guestUserId: migrationHandshake?.guestUserId || auth.userId,
-                migrationToken: migrationHandshake?.migrationToken,
-              });
-
+              const verified = await verifyEmailOnly({ email, code });
               await auth.refresh();
-
-              if (!alreadyOnboarded) {
-                await profileState.finishOnboarding(preferences);
-              } else {
-                await profileState.refresh();
-              }
-
+              await profileState.refresh();
               await data.hydrate();
               auth.endTransition();
+
+              if (verified.needsMerge) {
+                const preview = await loadMigrationPreview(migrationHandshake?.migrationToken);
+                setPendingMerge({
+                  guestUserId: verified.guestUserId,
+                  migrationToken: migrationHandshake?.migrationToken,
+                  preview,
+                  preferences,
+                });
+                return;
+              }
+
+              const alreadyOnboarded = profileState.profile?.onboarding_status === 'completed';
+              if (!alreadyOnboarded) {
+                await profileState.finishOnboarding(preferences);
+              }
+              await data.hydrate();
             } catch (error) {
               setOnboardingError(error?.message || 'Email verification failed.');
               auth.endTransition();
