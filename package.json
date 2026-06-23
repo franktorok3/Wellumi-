@@ -9,6 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
     "expo": "~54.0.33",
     "expo-camera": "~17.0.10",
     "expo-status-bar": "~3.0.9",
