@@ -3,22 +3,20 @@ const { getSupabaseAdmin } = require('./supabase');
 const { fetchProductByBarcode } = require('./openFoodFacts');
 const { searchFoodDataCentral } = require('./usda');
 const { analyzeLabelImage } = require('./openai');
-const { uploadScanImage } = require('./storage');
+const { uploadScanImage, attachSignedImageUrls } = require('./storage');
 const {
   normalizeFromOpenFoodFacts,
   normalizeFromUsda,
   normalizeFromOpenAi,
   mergeProductRecords,
   buildAnalysisFromLabelSummary,
+  buildBarcodeOnlyAnalysis,
   toClientScanResponse,
-  toLegacyAnalyzeLabelResponse,
 } = require('./productNormalizer');
 
 async function findProductByBarcode(barcode) {
   const supabase = getSupabaseAdmin();
-  if (!supabase || !barcode) {
-    return null;
-  }
+  if (!supabase || !barcode) return null;
 
   const { data, error } = await supabase
     .from('products')
@@ -45,47 +43,27 @@ async function upsertProduct(productInput) {
       const { data, error } = await supabase
         .from('products')
         .update({
-          name: productInput.name || existing.name,
+          name: productInput.name && productInput.name !== 'Unknown product' ? productInput.name : existing.name,
           brand: productInput.brand || existing.brand,
           ingredients_text: productInput.ingredients_text || existing.ingredients_text,
-          ingredients_data: {
-            ...existing.ingredients_data,
-            ...productInput.ingredients_data,
-          },
-          nutrition_data: {
-            ...existing.nutrition_data,
-            ...productInput.nutrition_data,
-          },
+          ingredients_data: { ...existing.ingredients_data, ...productInput.ingredients_data },
+          nutrition_data: { ...existing.nutrition_data, ...productInput.nutrition_data },
           product_image_url: productInput.product_image_url || existing.product_image_url,
           source: productInput.source === existing.source ? existing.source : 'merged',
           source_product_id: productInput.source_product_id || existing.source_product_id,
-          raw_source_data: {
-            ...existing.raw_source_data,
-            ...productInput.raw_source_data,
-          },
+          raw_source_data: { ...existing.raw_source_data, ...productInput.raw_source_data },
         })
         .eq('id', existing.id)
         .select('*')
         .single();
 
-      if (error) {
-        throw new Error(`Could not update existing product: ${error.message}`);
-      }
-
+      if (error) throw new Error(`Could not update existing product: ${error.message}`);
       return data;
     }
   }
 
-  const { data, error } = await supabase
-    .from('products')
-    .insert(productInput)
-    .select('*')
-    .single();
-
-  if (error) {
-    throw new Error(`Could not create product: ${error.message}`);
-  }
-
+  const { data, error } = await supabase.from('products').insert(productInput).select('*').single();
+  if (error) throw new Error(`Could not create product: ${error.message}`);
   return data;
 }
 
@@ -108,14 +86,11 @@ async function createAnalysis({ productId, userId, analysisInput }) {
     .select('*')
     .single();
 
-  if (error) {
-    throw new Error(`Could not create analysis: ${error.message}`);
-  }
-
+  if (error) throw new Error(`Could not create analysis: ${error.message}`);
   return data;
 }
 
-async function createScan({ userId, productId, analysisId, scanType, imageUrl, extractedText }) {
+async function createScan({ userId, productId, analysisId, scanType, imagePath, extractedText }) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('scans')
@@ -124,35 +99,25 @@ async function createScan({ userId, productId, analysisId, scanType, imageUrl, e
       product_id: productId,
       analysis_id: analysisId,
       scan_type: scanType,
-      image_url: imageUrl,
+      image_url: imagePath,
       extracted_text: extractedText,
     })
     .select('*')
     .single();
 
-  if (error) {
-    throw new Error(`Could not create scan: ${error.message}`);
-  }
-
+  if (error) throw new Error(`Could not create scan: ${error.message}`);
   return data;
 }
 
-async function resolveExternalProduct({ barcode, labelSummary }) {
+async function resolveExternalProduct({ barcode, labelSummary, imageBase64 }) {
   let normalizedProduct = null;
   const labelSummaryResult = labelSummary || null;
+  let offFound = false;
 
   if (barcode) {
-    const existing = await findProductByBarcode(barcode);
-    if (existing) {
-      return {
-        productRecord: existing,
-        labelSummary: labelSummaryResult,
-        reusedExistingProduct: true,
-      };
-    }
-
     const offPayload = await fetchProductByBarcode(barcode);
     if (offPayload) {
+      offFound = true;
       normalizedProduct = normalizeFromOpenFoodFacts(offPayload);
     }
   }
@@ -161,21 +126,17 @@ async function resolveExternalProduct({ barcode, labelSummary }) {
     normalizedProduct = normalizeFromOpenAi(labelSummaryResult);
   }
 
-  const shouldUseUsdaFallback =
-    !normalizedProduct ||
-    !normalizedProduct.nutrition_data ||
-    Object.keys(normalizedProduct.nutrition_data || {}).length === 0;
+  const nutritionMissing =
+    !normalizedProduct?.nutrition_data || Object.keys(normalizedProduct.nutrition_data).length <= 1;
 
-  if (shouldUseUsdaFallback) {
+  if (nutritionMissing && (normalizedProduct || labelSummaryResult || barcode)) {
     const usdaPayload = await searchFoodDataCentral({
       barcode,
       name: normalizedProduct?.name || labelSummaryResult?.product_name,
       brand: normalizedProduct?.brand,
     });
-
     if (usdaPayload) {
-      const usdaProduct = normalizeFromUsda(usdaPayload);
-      normalizedProduct = mergeProductRecords(normalizedProduct, usdaProduct);
+      normalizedProduct = mergeProductRecords(normalizedProduct, normalizeFromUsda(usdaPayload));
     }
   }
 
@@ -184,8 +145,18 @@ async function resolveExternalProduct({ barcode, labelSummary }) {
   }
 
   if (!normalizedProduct) {
+    if (barcode && !imageBase64 && !offFound) {
+      const error = new Error(
+        'This barcode was not found in Open Food Facts. Photograph the label to continue.'
+      );
+      error.statusCode = 404;
+      error.code = 'BARCODE_NOT_FOUND';
+      throw error;
+    }
+
     const error = new Error('No product information could be resolved for this scan.');
     error.statusCode = 404;
+    error.code = 'PRODUCT_NOT_FOUND';
     throw error;
   }
 
@@ -194,18 +165,13 @@ async function resolveExternalProduct({ barcode, labelSummary }) {
   }
 
   const productRecord = await upsertProduct(normalizedProduct);
-
-  return {
-    productRecord,
-    labelSummary: labelSummaryResult,
-    reusedExistingProduct: false,
-  };
+  return { productRecord, labelSummary: labelSummaryResult, offFound };
 }
 
 async function processScanRequest({ userId, imageBase64, mimeType, barcode }) {
   if (!hasSupabaseConfig()) {
     const error = new Error('Supabase is not configured on the server.');
-    error.statusCode = 500;
+    error.statusCode = 503;
     throw error;
   }
 
@@ -216,114 +182,126 @@ async function processScanRequest({ userId, imageBase64, mimeType, barcode }) {
   }
 
   let labelSummary = null;
-  const scanType = imageBase64 ? 'image' : barcode ? 'barcode' : 'manual';
+  const scanType = imageBase64 && barcode ? 'image' : imageBase64 ? 'image' : 'barcode';
 
   if (imageBase64) {
     labelSummary = await analyzeLabelImage({ imageBase64, mimeType });
   }
 
-  const { productRecord, labelSummary: resolvedLabelSummary, reusedExistingProduct } =
-    await resolveExternalProduct({
-      barcode: barcode || null,
-      labelSummary,
-    });
+  const { productRecord, labelSummary: resolvedLabelSummary } = await resolveExternalProduct({
+    barcode: barcode || null,
+    labelSummary,
+    imageBase64,
+  });
 
-  let analysisRecord = null;
-  const effectiveLabelSummary =
-    resolvedLabelSummary ||
-    productRecord.raw_source_data?.openai_label ||
-    (imageBase64 ? labelSummary : null);
+  const effectiveLabelSummary = resolvedLabelSummary || labelSummary;
 
+  let analysisRecord;
   if (effectiveLabelSummary) {
-    const analysisInput = buildAnalysisFromLabelSummary(effectiveLabelSummary, {
-      model: config.openai.model,
-      promptVersion: config.openai.promptVersion,
-    });
-
     analysisRecord = await createAnalysis({
       productId: productRecord.id,
       userId,
-      analysisInput,
+      analysisInput: buildAnalysisFromLabelSummary(effectiveLabelSummary, {
+        model: config.openai.model,
+        promptVersion: config.openai.promptVersion,
+      }),
     });
-  } else if (!reusedExistingProduct) {
-    const analysisInput = {
-      score: null,
-      summary:
-        'Source-backed product details were retrieved. AI label analysis was not required for this scan.',
-      positives: [
-        {
-          title: 'Product record',
-          body: `${productRecord.name}${productRecord.brand ? ` by ${productRecord.brand}` : ''}`,
-        },
-      ],
-      concerns: [
-        {
-          type: 'analysis_notice',
-          body: 'Retrieved product facts are informational. AI conclusions are not verified medical guidance.',
-        },
-      ],
-      allergen_flags: [],
-      confidence: null,
-      model: null,
-      prompt_version: null,
-    };
-
+  } else {
     analysisRecord = await createAnalysis({
       productId: productRecord.id,
       userId,
-      analysisInput,
+      analysisInput: buildBarcodeOnlyAnalysis(productRecord),
     });
   }
 
-  const imageUrl = imageBase64
+  const imagePath = imageBase64
     ? await uploadScanImage({ userId, imageBase64, mimeType })
-    : productRecord.product_image_url;
+    : null;
 
   const scanRecord = await createScan({
     userId,
     productId: productRecord.id,
-    analysisId: analysisRecord?.id || null,
+    analysisId: analysisRecord.id,
     scanType,
-    imageUrl,
+    imagePath,
     extractedText:
-      effectiveLabelSummary?.detected_label_text ||
-      productRecord.ingredients_text ||
-      null,
+      effectiveLabelSummary?.detected_label_text || productRecord.ingredients_text || null,
   });
 
+  const [scanWithSignedUrl] = await attachSignedImageUrls([scanRecord]);
   return toClientScanResponse({
     product: productRecord,
     analysis: analysisRecord,
-    scan: scanRecord,
+    scan: scanWithSignedUrl,
     labelSummary: effectiveLabelSummary,
   });
 }
 
-async function analyzeLabelOnly({ imageBase64, mimeType }) {
-  const labelSummary = await analyzeLabelImage({ imageBase64, mimeType });
-  return toLegacyAnalyzeLabelResponse(labelSummary);
-}
+const SCAN_SELECT = `
+  id,
+  scan_type,
+  image_url,
+  extracted_text,
+  created_at,
+  product:products (
+    id,
+    barcode,
+    name,
+    brand,
+    ingredients_text,
+    ingredients_data,
+    nutrition_data,
+    product_image_url,
+    source,
+    raw_source_data
+  ),
+  analysis:analyses (
+    id,
+    summary,
+    positives,
+    concerns,
+    allergen_flags,
+    confidence,
+    model,
+    prompt_version,
+    created_at
+  )
+`;
 
 async function listUserScans(userId, { limit = 20 } = {}) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from('scans')
+    .select(SCAN_SELECT)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`Could not load scans: ${error.message}`);
+  return attachSignedImageUrls(data || []);
+}
+
+async function listSavedProducts(userId, { limit = 50 } = {}) {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('saved_products')
     .select(
       `
       id,
-      scan_type,
-      image_url,
-      extracted_text,
       created_at,
+      analysis_id,
+      scan_id,
       product:products (
         id,
         barcode,
         name,
         brand,
         ingredients_text,
+        ingredients_data,
         nutrition_data,
         product_image_url,
-        source
+        source,
+        raw_source_data
       ),
       analysis:analyses (
         id,
@@ -335,6 +313,13 @@ async function listUserScans(userId, { limit = 20 } = {}) {
         model,
         prompt_version,
         created_at
+      ),
+      scan:scans (
+        id,
+        scan_type,
+        image_url,
+        extracted_text,
+        created_at
       )
     `
     )
@@ -342,83 +327,80 @@ async function listUserScans(userId, { limit = 20 } = {}) {
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  if (error) {
-    throw new Error(`Could not load scans: ${error.message}`);
-  }
+  if (error) throw new Error(`Could not load saved products: ${error.message}`);
 
-  return data || [];
+  const enriched = await Promise.all(
+    (data || []).map(async (item) => {
+      const scan = item.scan ? (await attachSignedImageUrls([item.scan]))[0] : null;
+      return { ...item, scan };
+    })
+  );
+
+  return enriched;
 }
 
-async function listSavedProducts(userId, { limit = 50 } = {}) {
+async function saveProductForUser(userId, { productId, analysisId, scanId }) {
   const supabase = getSupabaseAdmin();
+
+  let existingQuery = supabase
+    .from('saved_products')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('product_id', productId);
+
+  if (analysisId) {
+    existingQuery = existingQuery.eq('analysis_id', analysisId);
+  } else {
+    existingQuery = existingQuery.is('analysis_id', null);
+  }
+
+  const { data: existing } = await existingQuery.maybeSingle();
+
+  if (!existing) {
+    const { error: insertError } = await supabase.from('saved_products').insert({
+      user_id: userId,
+      product_id: productId,
+      analysis_id: analysisId || null,
+      scan_id: scanId || null,
+    });
+    if (insertError) throw new Error(`Could not save product: ${insertError.message}`);
+  } else if (scanId) {
+    await supabase
+      .from('saved_products')
+      .update({ scan_id: scanId })
+      .eq('id', existing.id);
+  }
+
   const { data, error } = await supabase
     .from('saved_products')
     .select(
       `
       id,
       created_at,
-      product:products (
-        id,
-        barcode,
-        name,
-        brand,
-        ingredients_text,
-        nutrition_data,
-        product_image_url,
-        source
-      )
+      analysis_id,
+      scan_id,
+      product:products (*),
+      analysis:analyses (*),
+      scan:scans (*)
     `
     )
     .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+    .eq('product_id', productId);
 
-  if (error) {
-    throw new Error(`Could not load saved products: ${error.message}`);
+  const row = analysisId
+    ? data?.find((item) => item.analysis_id === analysisId)
+    : data?.find((item) => !item.analysis_id);
+
+  if (error || !row) {
+    throw new Error(`Could not load saved product: ${error?.message || 'Not found'}`);
   }
 
-  return data || [];
-}
-
-async function saveProductForUser(userId, productId) {
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from('saved_products')
-    .upsert(
-      {
-        user_id: userId,
-        product_id: productId,
-      },
-      { onConflict: 'user_id,product_id' }
-    )
-    .select(
-      `
-      id,
-      created_at,
-      product:products (
-        id,
-        barcode,
-        name,
-        brand,
-        ingredients_text,
-        nutrition_data,
-        product_image_url,
-        source
-      )
-    `
-    )
-    .single();
-
-  if (error) {
-    throw new Error(`Could not save product: ${error.message}`);
-  }
-
-  return data;
+  const scan = row.scan ? (await attachSignedImageUrls([row.scan]))[0] : null;
+  return { ...row, scan };
 }
 
 module.exports = {
   processScanRequest,
-  analyzeLabelOnly,
   listUserScans,
   listSavedProducts,
   saveProductForUser,

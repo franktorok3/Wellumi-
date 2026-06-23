@@ -18,6 +18,8 @@ const analyzeLabelRequestSchema = z
 
 const saveProductRequestSchema = z.object({
   productId: z.string().uuid(),
+  analysisId: z.string().uuid().optional(),
+  scanId: z.string().uuid().optional(),
 });
 
 const openAiLabelSummarySchema = z.object({
