@@ -6,6 +6,7 @@ const config = {
     apiKey: process.env.OPENAI_API_KEY || '',
     model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
     promptVersion: process.env.OPENAI_PROMPT_VERSION || 'wellumi_label_summary_v1',
+    storyPromptVersion: process.env.WELLUMI_STORY_PROMPT_VERSION || 'wellumi_story_v1',
   },
   supabase: {
     url: process.env.SUPABASE_URL || '',

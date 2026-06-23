@@ -56,7 +56,7 @@ const typography = {
 const layout = {
   screenPaddingX: spacing.xl,
   screenPaddingTop: spacing.md,
-  screenPaddingBottom: 132,
+  screenPaddingBottom: 148,
   sectionGap: spacing.xl,
   cardGap: spacing.md - 1,
   contentMaxWidth: 520,
@@ -563,24 +563,32 @@ function ProductBottle({ item }) {
 }
 
 function FeedCard({ card, onPress }) {
+  const markerStyle = card.safetyFlag
+    ? styles.feedMarkerSafety
+    : card.isPersonalized
+      ? styles.feedMarkerPersonalized
+      : styles.feedMarkerGeneral;
+
   return (
     <Pressable style={({ pressed }) => [styles.feedCard, pressed && styles.pressed]} onPress={onPress}>
-      <View style={styles.updateMarker}>
-        <Text style={styles.updateMarkerText} numberOfLines={3}>{card.updateType}</Text>
+      <View style={[styles.updateMarker, markerStyle]}>
+        <Text style={[styles.updateMarkerText, card.safetyFlag && styles.updateMarkerTextSafety]} numberOfLines={4}>
+          {card.safetyFlag ? 'Safety' : card.isPersonalized ? 'For you' : card.updateType}
+        </Text>
       </View>
       <View style={styles.feedCopy}>
         <View style={styles.feedTopLine}>
-          <Text style={styles.feedReason} numberOfLines={1}>{card.reasonLabel}</Text>
+          <Text style={styles.feedReason} numberOfLines={2}>{card.reasonLabel}</Text>
           <Text style={styles.feedDate} numberOfLines={1}>{card.date}</Text>
         </View>
-        <Text style={styles.feedTitle} numberOfLines={2}>{card.title}</Text>
-        <Text style={styles.feedBody} numberOfLines={2}>{card.summary || card.body}</Text>
+        <Text style={styles.feedTitle} numberOfLines={3}>{card.title}</Text>
+        <Text style={styles.feedBody} numberOfLines={3}>{card.summary || card.deck}</Text>
         <View style={styles.feedFooter}>
           <View style={styles.feedPill}>
             <Icon name="doc" color={colors.green} size={14} />
             <Text style={styles.feedPillText} numberOfLines={1}>{card.sourceLabel}</Text>
           </View>
-          <Text style={styles.feedCta} numberOfLines={1}>{card.cta || 'View source'} ›</Text>
+          <Text style={styles.feedCta} numberOfLines={1}>Read story ›</Text>
         </View>
       </View>
     </Pressable>
@@ -1082,6 +1090,40 @@ const styles = StyleSheet.create({
     ...typography.micro,
     fontWeight: '800',
     textAlign: 'center',
+  },
+  feedMarkerGeneral: {
+    backgroundColor: colors.greenSoft,
+  },
+  feedMarkerPersonalized: {
+    backgroundColor: '#E8F0E4',
+  },
+  feedMarkerSafety: {
+    backgroundColor: '#F8E8E4',
+  },
+  updateMarkerTextSafety: {
+    color: '#9A4D3D',
+  },
+  feedSafetyBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F8E8E4',
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  feedSafetyBadgeText: {
+    color: '#9A4D3D',
+    ...typography.label,
+  },
+  feedReasonDetail: {
+    color: colors.greenDark,
+    ...typography.bodyStrong,
+    marginTop: spacing.sm,
+  },
+  feedSourceLink: {
+    color: colors.green,
+    ...typography.body,
+    marginBottom: spacing.sm,
   },
   articleArt: { width: 126, height: 112, borderRadius: 16, marginLeft: 4, overflow: 'hidden' },
   articleArtSmall: { width: 66, height: 66, marginLeft: 0, marginRight: 14 },

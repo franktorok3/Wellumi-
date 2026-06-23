@@ -1,4 +1,5 @@
 import { LONG_DISCLAIMER } from '../theme/tokens';
+import { formatNutritionEntries } from './formatNutrition';
 
 function formatDateLabel(value) {
   if (!value) return null;
@@ -11,6 +12,12 @@ function formatDateLabel(value) {
   } catch (error) {
     return null;
   }
+}
+
+function formatStoryCategory(category) {
+  return String(category || 'wellness')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function buildSectionsFromPayload(analysis) {
@@ -50,6 +57,7 @@ export function mapAnalysisToResultSummary(analysis) {
   const product = analysis.product || null;
   const scan = analysis.scan || null;
   const analysisRecord = analysis.analysis || null;
+  const nutritionData = analysis.label_facts?.nutrition_data || product?.nutrition_data || null;
 
   return {
     productId: product?.id || analysis.productId || null,
@@ -66,11 +74,9 @@ export function mapAnalysisToResultSummary(analysis) {
       product?.ingredients_text ||
       '',
     ingredientsText: analysis.label_facts?.ingredients_text || product?.ingredients_text || null,
-    nutritionData: analysis.label_facts?.nutrition_data || product?.nutrition_data || null,
-    imageUrl:
-      scan?.image_signed_url ||
-      product?.product_image_url ||
-      null,
+    nutritionData,
+    nutritionEntries: formatNutritionEntries(nutritionData),
+    imageUrl: scan?.image_signed_url || product?.product_image_url || null,
     neutralDisclaimer:
       analysis.ai_context?.disclaimer ||
       analysis.neutral_disclaimer ||
@@ -167,7 +173,58 @@ export function mapSavedProductToLibraryItem(savedProduct) {
   };
 }
 
+function mapSourcesFromStory(story) {
+  const links = story?.wellness_story_sources || story?.sources || [];
+  return links
+    .sort((a, b) => (a.citation_order || 0) - (b.citation_order || 0))
+    .map((entry) => entry.source_record || entry)
+    .filter(Boolean)
+    .map((source) => ({
+      id: source.id,
+      name: source.provider?.replace(/_/g, ' ') || 'Source',
+      title: source.title,
+      url: source.source_url,
+      provider: source.provider,
+      publishedAt: source.published_at,
+    }));
+}
+
+export function mapWellnessStoryToCard(item) {
+  const story = item.story || item;
+  const sources = mapSourcesFromStory(story);
+
+  return {
+    id: item.id,
+    storyId: story.id,
+    updateType: formatStoryCategory(story.story_category),
+    title: story.title || 'Wellumi story',
+    deck: story.deck || '',
+    summary: story.deck || story.body?.everyday_explanation || '',
+    reasonLabel: item.personalization_reason || 'Wellumi wellness story',
+    date: formatDateLabel(story.freshness_date || story.generated_at || item.created_at) || 'Recent',
+    sourceLabel: story.source_strength_label
+      ? `${story.source_strength_label} evidence`
+      : 'Source-backed',
+    sourceUrl: sources[0]?.url || null,
+    sourceType: story.story_category,
+    storyCategory: story.story_category,
+    lifestyleCategory: story.lifestyle_category,
+    isPersonalized: Boolean(item.is_personalized),
+    isGeneral: Boolean(story.is_general),
+    safetyFlag: Boolean(story.safety_flag),
+    sourceStrengthLabel: story.source_strength_label,
+    isRead: item.is_read,
+    sections: story.body || {},
+    sources,
+    raw: item,
+  };
+}
+
 export function mapFeedItemToCard(item) {
+  if (item?.story) {
+    return mapWellnessStoryToCard(item);
+  }
+
   const feedItem = item.feed_item;
   const matchedTerm = Array.isArray(item.matched_terms) ? item.matched_terms[0] : null;
   return {
@@ -190,3 +247,5 @@ export function mapFeedItemToCard(item) {
 export function getResultKey(result) {
   return String(result?.analysisId || result?.productId || result?.id || result?.title || 'untitled').toLowerCase();
 }
+
+export { formatNutritionEntries } from './formatNutrition';

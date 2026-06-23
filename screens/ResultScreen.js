@@ -28,7 +28,7 @@ export default function ResultScreen({
   onBack,
   onSave,
 }) {
-  const nutritionEntries = Object.entries(result.nutritionData?.per_100g || {}).slice(0, 8);
+  const nutritionEntries = result.nutritionEntries || [];
 
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultScroll}>
@@ -63,9 +63,9 @@ export default function ResultScreen({
 
       <SectionBlock title="Nutrition data" badge="When available" styles={styles}>
         {nutritionEntries.length ? (
-          nutritionEntries.map(([key, value]) => (
-            <Text key={key} style={styles.cardBody}>
-              {key.replace(/_/g, ' ')}: {value}
+          nutritionEntries.map((entry) => (
+            <Text key={entry.key || entry.label} style={styles.cardBody}>
+              {entry.display}
             </Text>
           ))
         ) : (

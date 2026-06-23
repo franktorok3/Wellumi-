@@ -10,7 +10,8 @@
     "verify:feed": "node scripts/verify-feed-refresh-policy.js",
     "verify:images": "node scripts/verify-image-validation.js",
     "verify:client": "node scripts/verify-client-flows.js",
-    "verify": "npm run verify:dates && npm run verify:ownership && npm run verify:feed && npm run verify:images && npm run verify:client"
+    "verify:wellness": "node scripts/verify-wellness-content.js",
+    "verify": "npm run verify:dates && npm run verify:ownership && npm run verify:feed && npm run verify:images && npm run verify:client && npm run verify:wellness"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
