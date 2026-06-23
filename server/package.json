@@ -19,9 +19,10 @@
     "verify:user-cache": "node scripts/verify-user-cache.js",
     "verify:source-metadata": "node scripts/verify-source-metadata.js",
     "verify:rls": "node scripts/verify-rls.js",
+    "verify:consolidated": "node scripts/verify-consolidated-pass.js",
     "demo:live-feed": "node scripts/demo-live-feed-quality.js",
     "reset:user-feed": "node scripts/reset-user-feed.js",
-    "verify": "npm run verify:dates && npm run verify:ownership && npm run verify:feed && npm run verify:images && npm run verify:client && npm run verify:wellness && npm run verify:feed-quality && npm run verify:feed-lifecycle && npm run verify:accounts && npm run verify:guest-upgrade && npm run verify:user-cache && npm run verify:source-metadata && npm run verify:rls"
+    "verify": "npm run verify:dates && npm run verify:ownership && npm run verify:feed && npm run verify:images && npm run verify:client && npm run verify:wellness && npm run verify:feed-quality && npm run verify:feed-lifecycle && npm run verify:accounts && npm run verify:guest-upgrade && npm run verify:user-cache && npm run verify:source-metadata && npm run verify:rls && npm run verify:consolidated"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

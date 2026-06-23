@@ -10,6 +10,7 @@ function computeTriggerScore({
   aggregates = null,
   storyCategory = 'everyday_wellness',
   isPersonalized = false,
+  interestProfile = null,
 }) {
   let score = 0;
   const signals = [];
@@ -129,6 +130,48 @@ function computeTriggerScore({
   if (!isPersonalized && sourceRecords.length >= 1) {
     score += 3;
     signals.push('base_story_sources');
+  }
+
+  if (interestProfile) {
+    const selected = interestProfile.preferences?.selected_interests || [];
+    const limited = new Set((interestProfile.preferences?.limited_topics || []).map((t) => String(t).toLowerCase()));
+    const storyTopics = [
+      topic?.id,
+      topic?.titleConcept,
+      storyCategory,
+      ...(profile?.lifestyleTopics || []),
+      profile?.productCategory,
+    ].filter(Boolean);
+
+    for (const interest of selected) {
+      const normalized = String(interest).toLowerCase();
+      if (storyTopics.some((t) => String(t).toLowerCase().includes(normalized) || normalized.includes(String(t).toLowerCase()))) {
+        score += 6;
+        signals.push('explicit_interest_match');
+      }
+    }
+
+    for (const limitTopic of limited) {
+      if (storyTopics.some((t) => String(t).toLowerCase().includes(limitTopic))) {
+        score -= 12;
+        signals.push('explicit_limit_penalty');
+      }
+    }
+
+    const topicWeights = new Map(
+      (interestProfile.topics || []).map((item) => [String(item.topic).toLowerCase(), item.finalWeight || 0])
+    );
+    for (const t of storyTopics) {
+      const weight = topicWeights.get(String(t).toLowerCase());
+      if (weight > 0) {
+        score += Math.min(weight, 12);
+        signals.push('signal_weight_boost');
+      }
+      if (weight < 0) {
+        score += Math.max(weight, -20);
+        signals.push('signal_weight_penalty');
+      }
+    }
   }
 
   if (storyCategory === 'safety_and_recalls') {

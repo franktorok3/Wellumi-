@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   completeOnboarding,
   fetchInterestProfile,
@@ -30,6 +30,11 @@ export function useProfile({ enabled = true, userId = null } = {}) {
   const [interestProfile, setInterestProfile] = useState(null);
   const [profileState, setProfileState] = useState(PROFILE_STATES.UNINITIALIZED);
   const [error, setError] = useState('');
+  const activeOwnerRef = useRef(userId);
+
+  useEffect(() => {
+    activeOwnerRef.current = userId;
+  }, [userId]);
 
   const reset = useCallback(() => {
     setProfile(null);
@@ -63,34 +68,43 @@ export function useProfile({ enabled = true, userId = null } = {}) {
     return true;
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (!enabled || !userId) return;
+  const refresh = useCallback(async (explicitOwnerId) => {
+    const ownerId = explicitOwnerId || activeOwnerRef.current;
+    if (!enabled || !ownerId) return;
     setProfileState(PROFILE_STATES.LOADING);
     setError('');
     try {
       await clearLegacyGlobalCache();
       const me = await fetchMe();
+      if (activeOwnerRef.current !== ownerId) return;
+
       const prefs = await fetchPreferences();
+      if (activeOwnerRef.current !== ownerId) return;
+
       setProfile(me.profile);
       setPreferences(prefs);
-      await writeUserCache(userId, 'profile', me.profile);
-      await writeUserCache(userId, 'preferences', prefs);
+      await writeUserCache(ownerId, 'profile', me.profile);
+      await writeUserCache(ownerId, 'preferences', prefs);
       if (me.profile?.onboarding_status === 'completed') {
         const interest = await fetchInterestProfile();
+        if (activeOwnerRef.current !== ownerId) return;
         setInterestProfile(interest);
-        await writeUserCache(userId, 'interest_profile', interest);
+        await writeUserCache(ownerId, 'interest_profile', interest);
       } else if (me.profile?.onboarding_step) {
-        await writeUserCache(userId, 'onboarding_step', me.profile.onboarding_step);
+        await writeUserCache(ownerId, 'onboarding_step', me.profile.onboarding_step);
       }
-      setProfileState(PROFILE_STATES.LOADED);
+      if (activeOwnerRef.current === ownerId) {
+        setProfileState(PROFILE_STATES.LOADED);
+      }
     } catch (profileError) {
+      if (activeOwnerRef.current !== ownerId) return;
       setError(profileError?.message || 'Could not load profile.');
-      const usedCache = await loadCachedForUser(userId);
-      if (!usedCache) {
+      const usedCache = await loadCachedForUser(ownerId);
+      if (!usedCache && activeOwnerRef.current === ownerId) {
         setProfileState(PROFILE_STATES.ERROR);
       }
     }
-  }, [enabled, userId, loadCachedForUser]);
+  }, [enabled, loadCachedForUser]);
 
   const beginOnboarding = useCallback(async () => {
     const started = await startOnboarding();
@@ -157,7 +171,7 @@ export function useProfile({ enabled = true, userId = null } = {}) {
 
   useEffect(() => {
     if (enabled && userId) {
-      refresh();
+      refresh(userId);
     }
   }, [enabled, userId, refresh]);
 

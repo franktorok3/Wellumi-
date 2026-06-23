@@ -20,6 +20,7 @@ function computeRankScore({
   isPersonalized = false,
   profile = null,
   aggregates = null,
+  interestProfile = null,
 }) {
   let score = triggerScore;
 
@@ -39,6 +40,15 @@ function computeRankScore({
   const strength = story?.source_strength_label;
   if (strength === 'strong') score += 6;
   if (strength === 'moderate') score += 3;
+
+  if (interestProfile?.preferences?.content_balance) {
+    const { getContentBalanceMultiplier } = require('./feedPreferenceEngine');
+    const multiplier = getContentBalanceMultiplier(
+      story?.story_category || 'everyday_wellness',
+      interestProfile.preferences.content_balance
+    );
+    score *= multiplier;
+  }
 
   return score;
 }

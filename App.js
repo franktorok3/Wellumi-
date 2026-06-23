@@ -178,6 +178,11 @@ export default function App() {
     setShowResult(false);
     try {
       await markFeedRead(card.id);
+      await submitStoryFeedback(card.storyId, 'opened', {
+        storyCategory: card.storyCategory,
+        topic: card.lifestyleCategory,
+        topics: card.topics,
+      });
     } catch (error) {
       if (__DEV__) console.log('[wellumi-feed] mark read failed', error?.message);
     }
@@ -190,7 +195,22 @@ export default function App() {
           styles={styles}
           item={currentFeedItem}
           onBack={() => setShowFeedDetail(false)}
-          onOpenSource={openFeedSource}
+          onOpenSource={(url) =>
+            openFeedSource(url, {
+              onOpened: async () => {
+                try {
+                  await submitStoryFeedback(currentFeedItem.storyId, 'source_opened', {
+                    storyCategory: currentFeedItem.storyCategory,
+                    topic: currentFeedItem.lifestyleCategory,
+                    topics: currentFeedItem.topics,
+                    source_url: url,
+                  });
+                } catch (error) {
+                  if (__DEV__) console.log('[wellumi-feed] source feedback failed', error?.message);
+                }
+              },
+            })
+          }
           onFeedback={async (feedbackType) => {
             try {
               await submitStoryFeedback(currentFeedItem.storyId, feedbackType, {

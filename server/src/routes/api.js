@@ -39,7 +39,7 @@ const {
   recordStoryFeedback,
   deactivateInferredTopic,
 } = require('../services/interestSignalService');
-const { deleteAccount, markAccountUpgraded } = require('../services/accountWorkflow');
+const { deleteAccount, markAccountUpgraded, syncProfileAccountType } = require('../services/accountWorkflow');
 const {
   createMigrationToken,
   completeGuestMigration,
@@ -121,6 +121,7 @@ router.post('/saved-products', requireAuthUser, async (req, res) => {
 
 router.get('/me', requireAuthUser, async (req, res) => {
   try {
+    await syncProfileAccountType(req.user.id, req.user);
     const me = await getMe(req.user.id);
     return res.json(me);
   } catch (error) {
@@ -255,7 +256,7 @@ router.post('/account/complete-migration', requireAuthUser, async (req, res) => 
         result,
       });
     }
-    const profile = await markAccountUpgraded(req.user.id, 'email');
+    const profile = await markAccountUpgraded(req.user.id, req.user);
     return res.json({ ...result, profile });
   } catch (error) {
     const statusCode = error.statusCode || 500;
@@ -265,8 +266,8 @@ router.post('/account/complete-migration', requireAuthUser, async (req, res) => 
 
 router.post('/account/upgrade', requireAuthUser, async (req, res) => {
   try {
-    const body = validateBody(accountUpgradeSchema, req.body || {});
-    const profile = await markAccountUpgraded(req.user.id, body.account_type);
+    validateBody(accountUpgradeSchema, req.body || {});
+    const profile = await markAccountUpgraded(req.user.id, req.user);
     return res.json({ profile });
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Could not upgrade account.' });
@@ -349,6 +350,11 @@ router.patch('/feed/:id/read', requireAuthUser, async (req, res) => {
 router.patch('/feed/:id/dismiss', requireAuthUser, async (req, res) => {
   try {
     const item = await dismissFeedItem(req.user.id, req.params.id);
+    if (item?.story_id) {
+      await recordStoryFeedback(req.user.id, item.story_id, 'dismissed', {
+        user_story_match_id: item.id,
+      });
+    }
     return res.json({ item });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Could not dismiss feed item.' });

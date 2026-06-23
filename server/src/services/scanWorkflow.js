@@ -14,6 +14,7 @@ const {
   buildBarcodeOnlyAnalysis,
   toClientScanResponse,
 } = require('./productNormalizer');
+const { recordScanSignals, recordSaveSignals } = require('./interestSignalService');
 
 async function findProductByBarcode(barcode) {
   const supabase = getSupabaseAdmin();
@@ -229,6 +230,14 @@ async function processScanRequest({ userId, imageBase64, mimeType, barcode }) {
       effectiveLabelSummary?.detected_label_text || productRecord.ingredients_text || null,
   });
 
+  try {
+    await recordScanSignals(userId, scanRecord.id, productRecord, analysisRecord);
+  } catch (signalError) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[wellumi-scan] recordScanSignals failed', signalError.message);
+    }
+  }
+
   const [scanWithSignedUrl] = await attachSignedImageUrls([scanRecord]);
   return toClientScanResponse({
     product: productRecord,
@@ -396,6 +405,14 @@ async function saveProductForUser(userId, { productId, analysisId, scanId }) {
 
   if (error || !row) {
     throw new Error(`Could not load saved product: ${error?.message || 'Not found'}`);
+  }
+
+  try {
+    await recordSaveSignals(userId, productId, row.product, row.analysis);
+  } catch (signalError) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('[wellumi-save] recordSaveSignals failed', signalError.message);
+    }
   }
 
   const scan = row.scan ? (await attachSignedImageUrls([row.scan]))[0] : null;

@@ -7,7 +7,7 @@ const {
   CONTENT_BALANCE_CATEGORIES,
   LIMITABLE_TOPICS,
 } = require('../content/onboardingOptions');
-const { createSignalsFromOnboarding } = require('./interestSignalService');
+const { createSignalsFromOnboarding, syncPreferencesSignals } = require('./interestSignalService');
 
 const VALID_INTEREST_IDS = new Set(ONBOARDING_INTERESTS.map((item) => item.id));
 const VALID_USE_CASE_IDS = new Set(ONBOARDING_USE_CASES.map((item) => item.id));
@@ -98,7 +98,7 @@ async function getPreferences(userId) {
   return data || { user_id: userId, ...validatePreferences({}) };
 }
 
-async function putPreferences(userId, payload) {
+async function putPreferences(userId, payload, { syncSignals = true } = {}) {
   const supabase = getSupabaseAdmin();
   const validated = validatePreferences(payload);
   const { data: current } = await supabase
@@ -118,10 +118,14 @@ async function putPreferences(userId, payload) {
     .single();
   if (error) throw new Error(`Could not save preferences: ${error.message}`);
 
+  if (syncSignals) {
+    await syncPreferencesSignals(userId, validated);
+  }
+
   await supabase
     .from('profiles')
     .update({
-      preference_version: (current?.preference_version || 1) + 1,
+      preference_version: (current?.preference_version || 0) + 1,
       last_profile_sync_at: new Date().toISOString(),
     })
     .eq('id', userId);
@@ -171,8 +175,14 @@ async function saveOnboardingStep(userId, { step, draft = {} }) {
 
 async function completeOnboarding(userId, finalPreferences = {}) {
   const supabase = getSupabaseAdmin();
-  const preferences = await putPreferences(userId, finalPreferences);
+  const preferences = await putPreferences(userId, finalPreferences, { syncSignals: false });
   await createSignalsFromOnboarding(userId, preferences);
+
+  const { data: currentProfile } = await supabase
+    .from('profiles')
+    .select('preference_version')
+    .eq('id', userId)
+    .maybeSingle();
 
   const { data, error } = await supabase
     .from('profiles')
@@ -180,7 +190,7 @@ async function completeOnboarding(userId, finalPreferences = {}) {
       onboarding_status: 'completed',
       onboarding_step: 'completed',
       onboarding_completed_at: new Date().toISOString(),
-      preference_version: 1,
+      preference_version: currentProfile?.preference_version || 1,
       last_profile_sync_at: new Date().toISOString(),
     })
     .eq('id', userId)

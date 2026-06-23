@@ -13,6 +13,21 @@ const USER_OWNED_TABLES = [
   { table: 'profiles', column: 'id' },
 ];
 
+/**
+ * Derive account_type from the authenticated Supabase user — never trust client input.
+ */
+function deriveAccountType(authUser) {
+  if (!authUser) return 'guest';
+  if (authUser.is_anonymous) return 'guest';
+
+  const identities = authUser.identities || [];
+  if (identities.some((identity) => identity.provider === 'apple')) return 'apple';
+  if (identities.some((identity) => identity.provider === 'email')) return 'email';
+  if (authUser.app_metadata?.provider === 'apple') return 'apple';
+  if (authUser.email) return 'email';
+  return 'guest';
+}
+
 async function countUserRows(userId) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase.rpc('count_user_owned_rows', { p_user_id: userId });
@@ -51,8 +66,16 @@ async function deleteAccount(userId, { confirm = false } = {}) {
   return { deleted: true };
 }
 
-async function markAccountUpgraded(userId, accountType) {
+async function markAccountUpgraded(userId, authUser) {
   const supabase = getSupabaseAdmin();
+  const accountType = deriveAccountType(authUser);
+
+  if (authUser?.is_anonymous && accountType !== 'guest') {
+    const error = new Error('Anonymous users cannot claim a permanent account type.');
+    error.statusCode = 403;
+    throw error;
+  }
+
   const { data, error } = await supabase
     .from('profiles')
     .update({
@@ -66,9 +89,27 @@ async function markAccountUpgraded(userId, accountType) {
   return data;
 }
 
+async function syncProfileAccountType(userId, authUser) {
+  const derived = deriveAccountType(authUser);
+  const supabase = getSupabaseAdmin();
+  const { data: profile } = await supabase.from('profiles').select('account_type').eq('id', userId).maybeSingle();
+  if (!profile || profile.account_type === derived) return profile;
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ account_type: derived, last_profile_sync_at: new Date().toISOString() })
+    .eq('id', userId)
+    .select('*')
+    .single();
+  if (error) throw new Error(`Could not sync account type: ${error.message}`);
+  return data;
+}
+
 module.exports = {
+  deriveAccountType,
   countUserRows,
   deleteAccount,
   markAccountUpgraded,
+  syncProfileAccountType,
   USER_OWNED_TABLES,
 };

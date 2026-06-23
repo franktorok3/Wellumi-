@@ -15,7 +15,7 @@ const {
   computeTriggerScore,
   buildPersonalizationReason,
 } = require('../content/triggerScore');
-const { computeRankScore, applyFeedMix } = require('../content/storyRanking');
+const { computeRankScore } = require('../content/storyRanking');
 const { collectSourcesForTopic, collectSourcesForProfile } = require('../providers/sourceProviders');
 const { getEvergreenForTopic, getEvergreenStorySeed } = require('../content/evergreenGuidance');
 const { evaluateSafetyEligibility } = require('../content/safetyRecall');
@@ -23,6 +23,13 @@ const { generateWellnessStory, STORY_PROMPT_VERSION } = require('./storyGenerato
 const { buildStoryKey, CONTENT_VERSION } = require('../content/storyKey');
 const { createRefreshToken, deactivateOrphanMatches } = require('./feedLifecycle');
 const { buildNormalizedInterestProfile } = require('./interestSignalService');
+const {
+  adjustTriggerThreshold,
+  applyPreferenceRankAdjustments,
+  applyProfileStageSlots,
+  prioritizeBaseTopics,
+  isStoryExcluded,
+} = require('../content/feedPreferenceEngine');
 
 const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const IS_DEV = process.env.NODE_ENV !== 'production';
@@ -368,6 +375,14 @@ async function maybeCreateStory({
     return null;
   }
 
+  if (
+    !isGeneral &&
+    interestProfile &&
+    isStoryExcluded({ story: { topics, story_category: storyCategory, base_topic_id: topic?.id }, matched_interests: topics, is_personalized: true }, interestProfile)
+  ) {
+    return null;
+  }
+
   const trigger = computeTriggerScore({
     sourceRecords: workingRecords,
     profile,
@@ -375,10 +390,17 @@ async function maybeCreateStory({
     aggregates,
     storyCategory,
     isPersonalized: !isGeneral,
+    interestProfile,
   });
 
   const evergreenOnly = workingRecords.every((record) => record.is_evergreen);
-  const threshold = evergreenOnly ? 4 : TRIGGER_SCORE_THRESHOLD;
+  const threshold = adjustTriggerThreshold({
+    baseThreshold: evergreenOnly ? 4 : TRIGGER_SCORE_THRESHOLD,
+    interestProfile,
+    topic,
+    storyCategory,
+    isPersonalized: !isGeneral,
+  });
   if (trigger.score < threshold) {
     if (IS_DEV) {
       console.log('[wellumi-story] skipped', { storyCategory, score: trigger.score, threshold });
@@ -447,13 +469,18 @@ async function maybeCreateStory({
     productId,
   });
 
-  const rankScore = computeRankScore({
-    triggerScore: trigger.score,
-    story,
-    isPersonalized: !isGeneral,
-    profile,
-    aggregates,
-  });
+  const rankScore = applyPreferenceRankAdjustments(
+    { story: { story_category: storyCategory, topics, base_topic_id: topic?.id }, is_personalized: !isGeneral, rank_score: 0 },
+    interestProfile,
+    computeRankScore({
+      triggerScore: trigger.score,
+      story,
+      isPersonalized: !isGeneral,
+      profile,
+      aggregates,
+      interestProfile,
+    })
+  );
 
   const match = await upsertUserStoryMatch({
     userId,
@@ -575,7 +602,7 @@ async function refreshUserFeed(userId, { force = false } = {}) {
     }
   }
 
-  const baseTopics = getBaseTopicsForMix();
+  const baseTopics = prioritizeBaseTopics(getBaseTopicsForMix(), interestProfile);
   for (const topic of baseTopics) {
     const { records, providerResults: topicProviders } = await collectSourcesForTopic(topic);
     providerResults.push(...topicProviders);
@@ -724,6 +751,12 @@ async function refreshUserFeed(userId, { force = false } = {}) {
 
 async function listUserFeed(userId, { limit = 30 } = {}) {
   const supabase = getSupabaseAdmin();
+  const [scans, savedProducts] = await Promise.all([
+    listUserScans(userId, { limit: 20 }),
+    listSavedProducts(userId, { limit: 20 }),
+  ]);
+  const interestProfile = await buildNormalizedInterestProfile(userId, { scans, savedProducts });
+
   const { data, error } = await supabase
     .from('user_story_matches')
     .select(
@@ -795,12 +828,11 @@ async function listUserFeed(userId, { limit = 30 } = {}) {
     (item) =>
       item.story &&
       item.story.is_active !== false &&
-      item.story.display_eligible !== false
+      item.story.display_eligible !== false &&
+      !isStoryExcluded(item, interestProfile)
   );
 
-  const mixed = applyFeedMix(eligible, {
-    hasPersonalization: eligible.some((item) => item.is_personalized),
-  });
+  const mixed = applyProfileStageSlots(eligible, interestProfile);
 
   return mixed.slice(0, limit);
 }

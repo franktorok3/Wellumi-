@@ -149,8 +149,11 @@ export function FeedDetailScreen({
   );
 }
 
-export async function openFeedSource(url) {
+export async function openFeedSource(url, { onOpened } = {}) {
   if (!url) return;
+  if (typeof onOpened === 'function') {
+    await onOpened(url);
+  }
   const supported = await Linking.canOpenURL(url);
   if (supported) {
     await Linking.openURL(url);

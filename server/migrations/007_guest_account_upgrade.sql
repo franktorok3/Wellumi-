@@ -9,7 +9,7 @@ create table if not exists public.guest_migration_tokens (
   token_hash text not null unique,
   expires_at timestamptz not null,
   consumed_at timestamptz,
-  consumed_by_user_id uuid references auth.users (id),
+  consumed_by_user_id uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now()
 );
 
@@ -96,6 +96,9 @@ declare
   v_merged_limited jsonb;
   v_merged_feed_mix jsonb;
   v_merged_notifications jsonb;
+  v_guest_is_anonymous boolean;
+  v_dest_is_anonymous boolean;
+  v_guest_rows_remaining bigint;
 begin
   if p_token_hash is null or length(trim(p_token_hash)) = 0 then
     raise exception 'migration_token_required';
@@ -124,6 +127,32 @@ begin
   end if;
 
   v_guest_user_id := v_token.guest_user_id;
+
+  select coalesce(is_anonymous, false)
+  into v_guest_is_anonymous
+  from auth.users
+  where id = v_guest_user_id;
+
+  if not found then
+    raise exception 'guest_user_not_found';
+  end if;
+
+  if not v_guest_is_anonymous then
+    raise exception 'source_user_not_anonymous';
+  end if;
+
+  select coalesce(is_anonymous, false)
+  into v_dest_is_anonymous
+  from auth.users
+  where id = p_destination_user_id;
+
+  if not found then
+    raise exception 'destination_user_not_found';
+  end if;
+
+  if v_dest_is_anonymous then
+    raise exception 'destination_user_anonymous';
+  end if;
 
   if v_guest_user_id = p_destination_user_id then
     update public.guest_migration_tokens
@@ -490,11 +519,62 @@ begin
   -- Remove guest profile row after data transfer (do not delete auth identity here)
   delete from public.profiles where id = v_guest_user_id and id <> p_destination_user_id;
 
+  v_after_dest := public.count_user_owned_rows(p_destination_user_id);
+
+  -- Conservation checks before consuming token (rollback entire transaction on failure)
+  if (v_after_dest->>'saved_products')::bigint < (v_before_dest->>'saved_products')::bigint then
+    raise exception 'migration_verification_failed_saved_products';
+  end if;
+
+  if (v_after_dest->>'user_story_matches')::bigint < (v_before_dest->>'user_story_matches')::bigint then
+    raise exception 'migration_verification_failed_user_story_matches';
+  end if;
+
+  if (v_after_dest->>'user_interest_signals')::bigint < (v_before_dest->>'user_interest_signals')::bigint then
+    raise exception 'migration_verification_failed_user_interest_signals';
+  end if;
+
+  if (v_after_dest->>'scans')::bigint < (v_before_dest->>'scans')::bigint + (v_before_guest->>'scans')::bigint then
+    raise exception 'migration_verification_failed_scans';
+  end if;
+
+  if (v_after_dest->>'analyses')::bigint < (v_before_dest->>'analyses')::bigint + (v_before_guest->>'analyses')::bigint then
+    raise exception 'migration_verification_failed_analyses';
+  end if;
+
+  if (v_after_dest->>'product_interest_profiles')::bigint < (v_before_dest->>'product_interest_profiles')::bigint then
+    raise exception 'migration_verification_failed_product_interest_profiles';
+  end if;
+
+  if (v_after_dest->>'user_preferences')::bigint < 1 then
+    raise exception 'migration_verification_failed_user_preferences';
+  end if;
+
+  if (v_after_dest->>'profiles')::bigint < 1 then
+    raise exception 'migration_verification_failed_profiles';
+  end if;
+
+  if (v_after_dest->>'user_feed_refresh')::bigint < (v_before_dest->>'user_feed_refresh')::bigint then
+    raise exception 'migration_verification_failed_user_feed_refresh';
+  end if;
+
+  if (v_after_dest->>'user_story_feedback')::bigint < (v_before_dest->>'user_story_feedback')::bigint then
+    raise exception 'migration_verification_failed_user_story_feedback';
+  end if;
+
+  select count(*) into v_guest_rows_remaining from public.scans where user_id = v_guest_user_id;
+  if v_guest_rows_remaining > 0 then
+    raise exception 'migration_verification_failed_guest_scans_remain';
+  end if;
+
+  select count(*) into v_guest_rows_remaining from public.profiles where id = v_guest_user_id;
+  if v_guest_rows_remaining > 0 then
+    raise exception 'migration_verification_failed_guest_profile_remains';
+  end if;
+
   update public.guest_migration_tokens
   set consumed_at = now(), consumed_by_user_id = p_destination_user_id
   where id = v_token.id;
-
-  v_after_dest := public.count_user_owned_rows(p_destination_user_id);
 
   return jsonb_build_object(
     'migrated', true,
@@ -510,3 +590,14 @@ exception
     raise;
 end;
 $$;
+
+-- Restrict RPC execution to service_role only
+revoke all on function public.count_user_owned_rows(uuid) from public;
+revoke all on function public.count_user_owned_rows(uuid) from anon;
+revoke all on function public.count_user_owned_rows(uuid) from authenticated;
+grant execute on function public.count_user_owned_rows(uuid) to service_role;
+
+revoke all on function public.complete_guest_account_upgrade(text, uuid, text) from public;
+revoke all on function public.complete_guest_account_upgrade(text, uuid, text) from anon;
+revoke all on function public.complete_guest_account_upgrade(text, uuid, text) from authenticated;
+grant execute on function public.complete_guest_account_upgrade(text, uuid, text) to service_role;

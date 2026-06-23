@@ -56,6 +56,19 @@ async function snapshotUser(supabase, userId) {
   return snapshot;
 }
 
+async function createAnonymousGuestUser() {
+  const anonKey = process.env.SUPABASE_ANON_KEY || '';
+  if (!anonKey) {
+    throw new Error('SUPABASE_ANON_KEY is required to create anonymous guest users for RPC integration tests');
+  }
+  const anonClient = createClient(URL, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await anonClient.auth.signInAnonymously();
+  if (error) throw new Error(`create anonymous guest: ${error.message}`);
+  return data.user;
+}
+
 async function createEmailUser(supabase, label) {
   const email = randomEmail(label);
   const password = `Test-${crypto.randomBytes(12).toString('hex')}!9`;
@@ -65,7 +78,7 @@ async function createEmailUser(supabase, label) {
     email_confirm: true,
   });
   if (error) throw new Error(`create user ${label}: ${error.message}`);
-  return data.user;
+  return { user: data.user, email, password };
 }
 
 async function ensureProfile(supabase, userId, patch = {}) {
@@ -158,15 +171,15 @@ async function main() {
   }
 
   const createdUsers = [];
-  let guestUser;
-  let destUser;
+  let destAuth;
   let productA;
   let productB;
   let storyA;
 
   try {
-    guestUser = await createEmailUser(supabase, 'guest');
-    destUser = await createEmailUser(supabase, 'dest');
+    const guestUser = await createAnonymousGuestUser();
+    destAuth = await createEmailUser(supabase, 'dest');
+    const destUser = destAuth.user;
     createdUsers.push(guestUser.id, destUser.id);
 
     await ensureProfile(supabase, guestUser.id, {
@@ -363,6 +376,43 @@ async function main() {
       .eq('product_id', productA);
     assert.strictEqual(duplicateSaved, 1);
 
+    const anonKey = process.env.SUPABASE_ANON_KEY || '';
+    if (anonKey) {
+      const anonClient = createClient(URL, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
+        email: destAuth.email,
+        password: destAuth.password,
+      });
+      if (!signInError && signInData?.session?.access_token) {
+        const authedClient = createClient(URL, anonKey, {
+          global: { headers: { Authorization: `Bearer ${signInData.session.access_token}` } },
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const forbidden = await authedClient.rpc('complete_guest_account_upgrade', {
+          p_token_hash: successToken.tokenHash,
+          p_destination_user_id: destUser.id,
+        });
+        assert.ok(forbidden.error, 'authenticated role must not execute migration RPC');
+        console.log('verify-guest-migration-rpc: forbidden authenticated execution — passed');
+      } else {
+        console.log('verify-guest-migration-rpc: skip forbidden RPC test (could not sign in dest user)');
+      }
+    } else {
+      console.log('verify-guest-migration-rpc: skip forbidden RPC test (no SUPABASE_ANON_KEY)');
+    }
+
+    const { error: deleteDestError } = await supabase.auth.admin.deleteUser(destUser.id);
+    assert.ok(!deleteDestError, `destination deletion should succeed: ${deleteDestError?.message}`);
+    const { data: tokenAfterDelete } = await supabase
+      .from('guest_migration_tokens')
+      .select('consumed_by_user_id')
+      .eq('token_hash', successToken.tokenHash)
+      .maybeSingle();
+    assert.strictEqual(tokenAfterDelete.consumed_by_user_id, null, 'consumed_by_user_id must SET NULL on delete');
+
+    console.log('verify-guest-migration-rpc: destination account deletion after migration — passed');
     console.log('verify-guest-migration-rpc: all integration checks passed');
     console.log(
       JSON.stringify(
