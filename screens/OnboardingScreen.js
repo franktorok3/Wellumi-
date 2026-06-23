@@ -239,10 +239,10 @@ export default function OnboardingScreen({
         <View>
           <Text style={styles.onboardingTitle}>Save your Wellumi</Text>
           <Text style={styles.onboardingBody}>
-            Guest activity stays on this device. Email or Apple accounts can restore your Library and preferences across devices.
+            Guest activity stays on this device. Email is optional and can restore your Library and preferences across devices.
           </Text>
           <Pressable style={styles.primaryButton} disabled={loading} onPress={() => onCompleteGuest(preferences)}>
-            <Text style={styles.primaryButtonText}>Continue as guest</Text>
+            <Text style={styles.primaryButtonText}>Finish setup</Text>
           </Pressable>
           <View style={styles.emailBlock}>
             <TextInput

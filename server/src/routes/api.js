@@ -9,6 +9,8 @@ const {
   patchMeSchema,
   storyFeedbackSchema,
   accountUpgradeSchema,
+  completeMigrationSchema,
+  deleteAccountSchema,
 } = require('../schemas/validation');
 const {
   processScanRequest,
@@ -37,6 +39,10 @@ const {
   deactivateInferredTopic,
 } = require('../services/interestSignalService');
 const { deleteAccount, markAccountUpgraded } = require('../services/accountWorkflow');
+const {
+  createMigrationToken,
+  completeGuestMigration,
+} = require('../services/guestMigrationService');
 const { hasSupabaseConfig, hasOpenAIConfig } = require('../config');
 
 const router = express.Router();
@@ -215,6 +221,35 @@ router.post('/stories/:storyId/feedback', requireAuthUser, async (req, res) => {
   }
 });
 
+router.post('/account/migration-token', requireAuthUser, async (req, res) => {
+  try {
+    const token = await createMigrationToken(req.user.id);
+    return res.json(token);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ error: error.message || 'Could not create migration token.' });
+  }
+});
+
+router.post('/account/complete-migration', requireAuthUser, async (req, res) => {
+  try {
+    const body = validateBody(completeMigrationSchema, req.body || {});
+    const result = await completeGuestMigration(req.user.id, body.migration_token);
+    if (!result.verification?.ok) {
+      return res.status(500).json({
+        error: 'Migration verification failed.',
+        verification: result.verification,
+        result,
+      });
+    }
+    const profile = await markAccountUpgraded(req.user.id, 'email');
+    return res.json({ ...result, profile });
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ error: error.message || 'Could not complete guest migration.' });
+  }
+});
+
 router.post('/account/upgrade', requireAuthUser, async (req, res) => {
   try {
     const body = validateBody(accountUpgradeSchema, req.body || {});
@@ -231,10 +266,12 @@ router.post('/account/sign-out', requireAuthUser, async (req, res) => {
 
 router.delete('/account', requireAuthUser, async (req, res) => {
   try {
-    const result = await deleteAccount(req.user.id);
+    validateBody(deleteAccountSchema, req.body || {});
+    const result = await deleteAccount(req.user.id, { confirm: true });
     return res.json(result);
   } catch (error) {
-    return res.status(500).json({ error: error.message || 'Could not delete account.' });
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({ error: error.message || 'Could not delete account.' });
   }
 });
 

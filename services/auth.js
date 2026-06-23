@@ -4,8 +4,6 @@ let initPromise = null;
 let cachedSession = null;
 let cachedUserId = null;
 
-const CACHE_PREFIX = 'wellumi.auth.';
-
 function logDevUserId(userId) {
   if (__DEV__ && userId) {
     console.log('[wellumi-auth] user id:', userId);
@@ -23,6 +21,24 @@ export async function clearAuthCache() {
   cachedSession = null;
   cachedUserId = null;
   initPromise = null;
+}
+
+export async function refreshAuthState() {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+  const { data, error } = await supabase.auth.getSession();
+  if (error) {
+    throw new Error(`Could not refresh session: ${error.message}`);
+  }
+  cachedSession = data.session;
+  cachedUserId = data.session?.user?.id || null;
+  logDevUserId(cachedUserId);
+  return {
+    session: cachedSession,
+    userId: cachedUserId,
+  };
 }
 
 export async function initializeAuth() {

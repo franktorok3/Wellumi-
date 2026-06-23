@@ -183,8 +183,25 @@ export async function upgradeAccount(accountType) {
   });
 }
 
-export async function deleteAccount() {
-  return apiRequest('/account', { method: 'DELETE' });
+export async function requestMigrationToken() {
+  return apiRequest('/account/migration-token', { method: 'POST' });
+}
+
+export async function completeGuestMigration(migrationToken) {
+  return apiRequest('/account/complete-migration', {
+    method: 'POST',
+    body: { migration_token: migrationToken },
+  });
+}
+
+export async function deleteAccount({ confirmationPhrase = 'DELETE' } = {}) {
+  return apiRequest('/account', {
+    method: 'DELETE',
+    body: {
+      confirm: true,
+      confirmation_phrase: confirmationPhrase,
+    },
+  });
 }
 
 export async function checkApiHealth() {

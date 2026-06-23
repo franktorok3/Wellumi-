@@ -142,8 +142,8 @@ function toSourceRecord(entry) {
     safety_relevance: entry.safety_relevance,
     is_evergreen: true,
     curated_at: now,
-    verified_at: now,
-    verification_status: 'manually_curated',
+    verified_at: null,
+    verification_status: 'unverified_migrated',
     source_owner: 'wellumi_editorial',
   };
 }

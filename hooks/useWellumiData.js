@@ -35,6 +35,19 @@ export function useWellumiData() {
   const [savedError, setSavedError] = useState('');
   const [feedError, setFeedError] = useState('');
 
+  const clear = useCallback(() => {
+    setRecentScans([]);
+    setSavedItems([]);
+    setFeedCards([]);
+    setFeedStale(false);
+    setScansLoading(false);
+    setSavedLoading(false);
+    setFeedLoading(false);
+    setScansError('');
+    setSavedError('');
+    setFeedError('');
+  }, []);
+
   const hydrate = useCallback(async () => {
     setScansLoading(true);
     setSavedLoading(true);
@@ -104,6 +117,7 @@ export function useWellumiData() {
     feedError,
     hydrate,
     reloadFeed,
+    clear,
     setSavedItems,
     setRecentScans,
   };

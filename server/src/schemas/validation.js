@@ -85,6 +85,15 @@ const accountUpgradeSchema = z.object({
   account_type: z.enum(['email', 'apple']),
 });
 
+const completeMigrationSchema = z.object({
+  migration_token: z.string().min(32),
+});
+
+const deleteAccountSchema = z.object({
+  confirm: z.literal(true),
+  confirmation_phrase: z.literal('DELETE'),
+});
+
 const openAiLabelSummarySchema = z.object({
   product_name: z.string().min(1),
   detected_label_text: z.string().default(''),
@@ -148,6 +157,8 @@ module.exports = {
   patchMeSchema,
   storyFeedbackSchema,
   accountUpgradeSchema,
+  completeMigrationSchema,
+  deleteAccountSchema,
   openAiLabelSummarySchema,
   openFoodFactsResponseSchema,
   usdaSearchResponseSchema,

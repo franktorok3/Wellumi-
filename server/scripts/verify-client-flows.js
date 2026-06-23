@@ -30,5 +30,17 @@ const hydrationHook = fs.readFileSync(
 assert.match(hydrationHook, /Promise\.allSettled/, 'hydration must use Promise.allSettled');
 assert.match(hydrationHook, /scansError/, 'hydration must track scans error separately');
 assert.match(hydrationHook, /feedError/, 'hydration must track feed error separately');
+assert.match(hydrationHook, /const clear = useCallback/, 'hydration hook must expose clear');
+
+const useProfileHook = fs.readFileSync(
+  path.join(__dirname, '../../hooks/useProfile.js'),
+  'utf8'
+);
+assert.match(useProfileHook, /PROFILE_STATES/, 'profile hook must expose explicit profile states');
+assert.match(useProfileHook, /shouldShowOnboarding/, 'onboarding routing must wait for resolved profile');
+
+const appSource = fs.readFileSync(path.join(__dirname, '../../App.js'), 'utf8');
+assert.match(appSource, /Saving your Wellumi/, 'auth transition must show neutral loading state');
+assert.doesNotMatch(appSource, /profileState\.profile && profileState\.needsOnboarding/, 'avoid stale-profile onboarding flash');
 
 console.log('verify-client-flows: all static checks passed');

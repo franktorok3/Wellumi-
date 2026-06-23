@@ -15,49 +15,36 @@ const USER_OWNED_TABLES = [
 
 async function countUserRows(userId) {
   const supabase = getSupabaseAdmin();
-  const counts = {};
-  for (const entry of USER_OWNED_TABLES) {
-    const { count, error } = await supabase
-      .from(entry.table)
-      .select('*', { count: 'exact', head: true })
-      .eq(entry.column, userId);
-    if (error) throw new Error(`Could not count ${entry.table}: ${error.message}`);
-    counts[entry.table] = count || 0;
+  const { data, error } = await supabase.rpc('count_user_owned_rows', { p_user_id: userId });
+  if (error) {
+    const counts = {};
+    for (const entry of USER_OWNED_TABLES) {
+      const { count, countError } = await supabase
+        .from(entry.table)
+        .select('*', { count: 'exact', head: true })
+        .eq(entry.column, userId);
+      if (countError) throw new Error(`Could not count ${entry.table}: ${countError.message}`);
+      counts[entry.table] = count || 0;
+    }
+    return counts;
   }
-  return counts;
+  return data;
 }
 
-async function migrateGuestOwnership(fromUserId, toUserId) {
-  if (fromUserId === toUserId) return { migrated: false, counts: await countUserRows(toUserId) };
-
-  const supabase = getSupabaseAdmin();
-  const beforeFrom = await countUserRows(fromUserId);
-  const beforeTo = await countUserRows(toUserId);
-
-  for (const entry of USER_OWNED_TABLES) {
-    if (entry.table === 'profiles') continue;
-    const { error } = await supabase
-      .from(entry.table)
-      .update({ [entry.column]: toUserId })
-      .eq(entry.column, fromUserId);
-    if (error) throw new Error(`Could not migrate ${entry.table}: ${error.message}`);
+async function deleteAccount(userId, { confirm = false } = {}) {
+  if (!confirm) {
+    const error = new Error('Account deletion requires explicit confirmation.');
+    error.statusCode = 400;
+    throw error;
   }
 
-  const afterTo = await countUserRows(toUserId);
-  return {
-    migrated: true,
-    beforeFrom,
-    beforeTo,
-    afterTo,
-  };
-}
-
-async function deleteAccount(userId) {
   const supabase = getSupabaseAdmin();
   for (const entry of [...USER_OWNED_TABLES].reverse()) {
     const { error } = await supabase.from(entry.table).delete().eq(entry.column, userId);
     if (error) throw new Error(`Could not delete from ${entry.table}: ${error.message}`);
   }
+
+  await supabase.from('guest_migration_tokens').delete().eq('guest_user_id', userId);
 
   const { error: authError } = await supabase.auth.admin.deleteUser(userId);
   if (authError) throw new Error(`Could not delete auth user: ${authError.message}`);
@@ -81,7 +68,6 @@ async function markAccountUpgraded(userId, accountType) {
 
 module.exports = {
   countUserRows,
-  migrateGuestOwnership,
   deleteAccount,
   markAccountUpgraded,
   USER_OWNED_TABLES,

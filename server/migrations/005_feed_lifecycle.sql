@@ -47,12 +47,12 @@ alter table public.source_records
   add column if not exists verification_status text,
   add column if not exists source_owner text;
 
--- Backfill curated evergreen records
+-- Backfill curated evergreen records (do not fabricate verification)
 update public.source_records
 set
   curated_at = coalesce(curated_at, created_at),
-  verified_at = coalesce(verified_at, now()),
-  verification_status = coalesce(verification_status, 'manually_curated'),
+  verified_at = null,
+  verification_status = 'unverified_migrated',
   source_owner = coalesce(source_owner, 'wellumi_editorial')
 where is_evergreen = true;
 

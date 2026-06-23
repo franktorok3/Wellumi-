@@ -81,10 +81,8 @@ async function upsertSourceRecord(record) {
         safety_relevance: record.safety_relevance,
         is_evergreen: isEvergreen,
         curated_at: isEvergreen ? record.curated_at || new Date().toISOString() : record.curated_at || null,
-        verified_at: isEvergreen ? record.verified_at || new Date().toISOString() : record.verified_at || null,
-        verification_status: isEvergreen
-          ? record.verification_status || 'manually_curated'
-          : record.verification_status || null,
+        verified_at: record.verified_at || null,
+        verification_status: record.verification_status || (isEvergreen ? 'unverified_migrated' : null),
         source_owner: isEvergreen ? record.source_owner || 'wellumi_editorial' : record.source_owner || null,
         recall_status: record.recall_status || null,
         recall_product_description: record.recall_product_description || null,

@@ -12,15 +12,22 @@ import {
 } from 'react-native';
 import { ErrorState, LoadingState } from './components/StateViews';
 import { useAuth } from './hooks/useAuth';
-import { useProfile, clearProfileCache } from './hooks/useProfile';
+import { useProfile, PROFILE_STATES } from './hooks/useProfile';
 import { useWellumiData } from './hooks/useWellumiData';
 import FeedScreen, { FeedDetailScreen, openFeedSource } from './screens/FeedScreen';
 import LibraryScreen from './screens/LibraryScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
+import SignInScreen from './screens/SignInScreen';
 import ResultScreen from './screens/ResultScreen';
 import ScanScreen from './screens/ScanScreen';
 import { markFeedRead, saveProduct, submitStoryFeedback } from './services/api';
-import { sendEmailCode, verifyEmailCode, signOutAndReset } from './services/auth';
+import {
+  mergeGuestIntoCurrentAccount,
+  sendEmailUpgradeCode,
+  verifyEmailAndMigrate,
+} from './services/accountTransition';
+import { signOutAndReset } from './services/auth';
+import { clearUserCache } from './services/userCache';
 import { mapSavedProductToLibraryItem } from './services/mappers';
 import { colors } from './theme/tokens';
 
@@ -91,30 +98,37 @@ function SplashScreen() {
 
 export default function App() {
   const auth = useAuth();
-  const profileState = useProfile({ enabled: auth.isReady });
+  const profileState = useProfile({ enabled: auth.status === 'ready', userId: auth.userId });
   const data = useWellumiData();
   const [activeTab, setActiveTab] = useState('home');
   const [showResult, setShowResult] = useState(false);
   const [showFeedDetail, setShowFeedDetail] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [migrationHandshake, setMigrationHandshake] = useState(null);
   const [currentResult, setCurrentResult] = useState(null);
   const [currentFeedItem, setCurrentFeedItem] = useState(null);
   const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [onboardingError, setOnboardingError] = useState('');
 
   useEffect(() => {
-    if (auth.isReady) {
+    if (auth.status === 'ready' && auth.userId && !auth.authTransitioning) {
       data.hydrate();
     }
-  }, [auth.isReady]);
+  }, [auth.status, auth.userId, auth.authTransitioning]);
 
   useEffect(() => {
-    if (auth.isReady && profileState.profile?.onboarding_status === 'not_started') {
+    if (
+      auth.status === 'ready' &&
+      auth.userId &&
+      profileState.isProfileResolved &&
+      profileState.profile?.onboarding_status === 'not_started'
+    ) {
       profileState.beginOnboarding().catch((error) => {
         if (__DEV__) console.log('[wellumi-onboarding] start failed', error?.message);
       });
     }
-  }, [auth.isReady, profileState.profile?.onboarding_status]);
+  }, [auth.status, auth.userId, profileState.isProfileResolved, profileState.profile?.onboarding_status]);
 
   const currentResultSaved = data.savedItems.some(
     (item) =>
@@ -277,11 +291,22 @@ export default function App() {
           profile={profileState.profile}
           preferences={profileState.preferences}
           interestProfile={profileState.interestProfile}
+          onUpgradeEmail={() => setShowSignIn(true)}
           onSignOut={async () => {
-            await clearProfileCache();
-            await signOutAndReset();
-            auth.retry();
-            data.hydrate();
+            const oldUserId = auth.userId;
+            try {
+              data.clear();
+              profileState.reset();
+              if (oldUserId) {
+                await clearUserCache(oldUserId);
+              }
+              await signOutAndReset();
+              await auth.refresh();
+              await profileState.refresh();
+              await data.hydrate();
+            } catch (error) {
+              Alert.alert('Could not sign out', error?.message || 'Please try again.');
+            }
           }}
         />
       );
@@ -348,6 +373,14 @@ export default function App() {
     );
   }
 
+  if (auth.authTransitioning) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <LoadingState message="Saving your Wellumi…" styles={styles} />
+      </SafeAreaView>
+    );
+  }
+
   if (auth.status === 'error') {
     return (
       <SafeAreaView style={styles.app}>
@@ -361,7 +394,93 @@ export default function App() {
     );
   }
 
-  if (auth.isReady && profileState.profile && profileState.needsOnboarding) {
+  if (
+    auth.status === 'ready' &&
+    auth.userId &&
+    (profileState.profileState === PROFILE_STATES.UNINITIALIZED ||
+      profileState.profileState === PROFILE_STATES.LOADING)
+  ) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <LoadingState message="Loading your profile..." styles={styles} />
+      </SafeAreaView>
+    );
+  }
+
+  if (showSignIn) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <StatusBar style="dark" />
+        <SignInScreen
+          styles={styles}
+          loading={onboardingBusy}
+          error={onboardingError}
+          guestUserId={auth.userId}
+          onSendCode={async (email) => {
+            setOnboardingBusy(true);
+            setOnboardingError('');
+            try {
+              auth.beginTransition();
+              const handshake = await sendEmailUpgradeCode(email);
+              setMigrationHandshake(handshake);
+              return handshake;
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not send verification code.');
+              auth.endTransition();
+              throw error;
+            } finally {
+              setOnboardingBusy(false);
+            }
+          }}
+          onVerifyCode={async (payload) => {
+            setOnboardingBusy(true);
+            setOnboardingError('');
+            try {
+              auth.beginTransition();
+              data.clear();
+              profileState.reset();
+              const result = await verifyEmailAndMigrate(payload);
+              await auth.refresh();
+              await profileState.refresh();
+              await data.hydrate();
+              auth.endTransition();
+              return result;
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not verify email.');
+              auth.endTransition();
+              throw error;
+            } finally {
+              setOnboardingBusy(false);
+            }
+          }}
+          onMergeGuest={async (migrationToken) => {
+            setOnboardingBusy(true);
+            setOnboardingError('');
+            try {
+              auth.beginTransition();
+              await mergeGuestIntoCurrentAccount(migrationToken);
+              await auth.refresh();
+              await profileState.refresh();
+              await data.hydrate();
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not merge guest activity.');
+              throw error;
+            } finally {
+              auth.endTransition();
+              setOnboardingBusy(false);
+            }
+          }}
+          onBack={() => {
+            setShowSignIn(false);
+            setOnboardingError('');
+            auth.endTransition();
+          }}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (auth.status === 'ready' && profileState.shouldShowOnboarding) {
     return (
       <SafeAreaView style={styles.app}>
         <StatusBar style="dark" />
@@ -380,7 +499,7 @@ export default function App() {
               setOnboardingBusy(true);
               setOnboardingError('');
               await profileState.finishOnboarding(preferences);
-              await data.reloadFeed();
+              await data.hydrate();
             } catch (error) {
               setOnboardingError(error?.message || 'Could not complete onboarding.');
             } finally {
@@ -392,21 +511,46 @@ export default function App() {
               setOnboardingBusy(true);
               setOnboardingError('');
               if (stage === 'send') {
-                await sendEmailCode(email);
+                auth.beginTransition();
+                const handshake = await sendEmailUpgradeCode(email);
+                setMigrationHandshake(handshake);
+                auth.endTransition();
                 return;
               }
-              await verifyEmailCode(email, code);
-              await profileState.finishOnboarding(preferences);
-              await data.reloadFeed();
+
+              auth.beginTransition();
+              data.clear();
+              profileState.reset();
+
+              const alreadyOnboarded = profileState.profile?.onboarding_status === 'completed';
+              const migration = await verifyEmailAndMigrate({
+                email,
+                code,
+                guestUserId: migrationHandshake?.guestUserId || auth.userId,
+                migrationToken: migrationHandshake?.migrationToken,
+              });
+
+              await auth.refresh();
+
+              if (!alreadyOnboarded) {
+                await profileState.finishOnboarding(preferences);
+              } else {
+                await profileState.refresh();
+              }
+
+              await data.hydrate();
+              auth.endTransition();
             } catch (error) {
               setOnboardingError(error?.message || 'Email verification failed.');
+              auth.endTransition();
               throw error;
             } finally {
               setOnboardingBusy(false);
             }
           }}
           onSignInExisting={() => {
-            setOnboardingError('Use email verification on the final step to restore an existing account.');
+            setOnboardingError('');
+            setShowSignIn(true);
           }}
         />
       </SafeAreaView>
@@ -558,6 +702,7 @@ function ProfileScreen({
   profile,
   preferences,
   interestProfile,
+  onUpgradeEmail,
   onSignOut,
 }) {
   const accountLabel =
@@ -600,6 +745,11 @@ function ProfileScreen({
         title="Data & privacy"
         body="Your scans, analyses, saved products, preferences, and feed matches are stored in Supabase. Guest activity is tied to this device identity until you upgrade."
       />
+      {profile?.account_type === 'guest' ? (
+        <Pressable style={styles.primaryButton} onPress={onUpgradeEmail}>
+          <Text style={styles.primaryButtonText}>Save with email</Text>
+        </Pressable>
+      ) : null}
       <Pressable style={styles.secondaryButton} onPress={onSignOut}>
         <Text style={styles.secondaryButtonText}>Sign out</Text>
       </Pressable>

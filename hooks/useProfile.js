@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   completeOnboarding,
   fetchInterestProfile,
@@ -9,121 +8,194 @@ import {
   startOnboarding,
   updatePreferences,
 } from '../services/api';
+import {
+  cacheKey,
+  clearLegacyGlobalCache,
+  clearUserCache,
+  readUserCache,
+  writeUserCache,
+} from '../services/userCache';
 
-const CACHE_KEYS = {
-  profile: 'wellumi.profile',
-  preferences: 'wellumi.preferences',
-  onboardingStep: 'wellumi.onboarding_step',
-  interestProfile: 'wellumi.interest_profile',
+export const PROFILE_STATES = {
+  UNINITIALIZED: 'uninitialized',
+  LOADING: 'loading',
+  LOADED: 'loaded',
+  OFFLINE_CACHED: 'offline_cached',
+  ERROR: 'error',
 };
 
-export function useProfile({ enabled = true } = {}) {
+export function useProfile({ enabled = true, userId = null } = {}) {
   const [profile, setProfile] = useState(null);
   const [preferences, setPreferences] = useState(null);
   const [interestProfile, setInterestProfile] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [profileState, setProfileState] = useState(PROFILE_STATES.UNINITIALIZED);
   const [error, setError] = useState('');
 
-  const loadCached = useCallback(async () => {
+  const reset = useCallback(() => {
+    setProfile(null);
+    setPreferences(null);
+    setInterestProfile(null);
+    setProfileState(PROFILE_STATES.UNINITIALIZED);
+    setError('');
+  }, []);
+
+  const loadCachedForUser = useCallback(async (ownerId) => {
+    if (!ownerId) return false;
     const [cachedProfile, cachedPreferences, cachedStep, cachedInterest] = await Promise.all([
-      AsyncStorage.getItem(CACHE_KEYS.profile),
-      AsyncStorage.getItem(CACHE_KEYS.preferences),
-      AsyncStorage.getItem(CACHE_KEYS.onboardingStep),
-      AsyncStorage.getItem(CACHE_KEYS.interestProfile),
+      readUserCache(ownerId, 'profile'),
+      readUserCache(ownerId, 'preferences'),
+      readUserCache(ownerId, 'onboarding_step'),
+      readUserCache(ownerId, 'interest_profile'),
     ]);
-    if (cachedProfile) setProfile(JSON.parse(cachedProfile));
-    if (cachedPreferences) setPreferences(JSON.parse(cachedPreferences));
-    if (cachedStep && profile) {
-      setProfile((current) => ({ ...current, onboarding_step: cachedStep }));
+
+    if (!cachedProfile && !cachedPreferences) return false;
+
+    if (cachedProfile) {
+      setProfile(
+        cachedStep && cachedProfile.onboarding_status !== 'completed'
+          ? { ...cachedProfile, onboarding_step: cachedStep }
+          : cachedProfile
+      );
     }
-    if (cachedInterest) setInterestProfile(JSON.parse(cachedInterest));
-  }, [profile]);
+    if (cachedPreferences) setPreferences(cachedPreferences);
+    if (cachedInterest) setInterestProfile(cachedInterest);
+    setProfileState(PROFILE_STATES.OFFLINE_CACHED);
+    return true;
+  }, []);
 
   const refresh = useCallback(async () => {
-    if (!enabled) return;
-    setLoading(true);
+    if (!enabled || !userId) return;
+    setProfileState(PROFILE_STATES.LOADING);
     setError('');
     try {
+      await clearLegacyGlobalCache();
       const me = await fetchMe();
       const prefs = await fetchPreferences();
       setProfile(me.profile);
       setPreferences(prefs);
-      await AsyncStorage.setItem(CACHE_KEYS.profile, JSON.stringify(me.profile));
-      await AsyncStorage.setItem(CACHE_KEYS.preferences, JSON.stringify(prefs));
+      await writeUserCache(userId, 'profile', me.profile);
+      await writeUserCache(userId, 'preferences', prefs);
       if (me.profile?.onboarding_status === 'completed') {
         const interest = await fetchInterestProfile();
         setInterestProfile(interest);
-        await AsyncStorage.setItem(CACHE_KEYS.interestProfile, JSON.stringify(interest));
+        await writeUserCache(userId, 'interest_profile', interest);
+      } else if (me.profile?.onboarding_step) {
+        await writeUserCache(userId, 'onboarding_step', me.profile.onboarding_step);
       }
+      setProfileState(PROFILE_STATES.LOADED);
     } catch (profileError) {
       setError(profileError?.message || 'Could not load profile.');
-      await loadCached();
-    } finally {
-      setLoading(false);
+      const usedCache = await loadCachedForUser(userId);
+      if (!usedCache) {
+        setProfileState(PROFILE_STATES.ERROR);
+      }
     }
-  }, [enabled, loadCached]);
+  }, [enabled, userId, loadCachedForUser]);
 
   const beginOnboarding = useCallback(async () => {
     const started = await startOnboarding();
     setProfile(started.profile);
-    return started.profile;
-  }, []);
-
-  const persistStep = useCallback(async (step, draft) => {
-    const saved = await saveOnboardingStep(step, draft);
-    setProfile(saved.profile);
-    if (draft) {
-      setPreferences(draft);
-      await AsyncStorage.setItem(CACHE_KEYS.preferences, JSON.stringify(draft));
+    if (userId) {
+      await writeUserCache(userId, 'profile', started.profile);
     }
-    await AsyncStorage.setItem(CACHE_KEYS.onboardingStep, step);
-    return saved.profile;
-  }, []);
+    return started.profile;
+  }, [userId]);
 
-  const finishOnboarding = useCallback(async (finalPreferences) => {
-    const result = await completeOnboarding(finalPreferences);
-    setProfile(result.profile);
-    setPreferences(result.preferences);
-    await AsyncStorage.multiSet([
-      [CACHE_KEYS.profile, JSON.stringify(result.profile)],
-      [CACHE_KEYS.preferences, JSON.stringify(result.preferences)],
-      [CACHE_KEYS.onboardingStep, 'completed'],
-    ]);
-    return result;
-  }, []);
+  const persistStep = useCallback(
+    async (step, draft) => {
+      const saved = await saveOnboardingStep(step, draft);
+      setProfile(saved.profile);
+      if (draft && userId) {
+        setPreferences(draft);
+        await writeUserCache(userId, 'preferences', draft);
+      }
+      if (userId) {
+        await writeUserCache(userId, 'onboarding_step', step);
+        await writeUserCache(userId, 'profile', saved.profile);
+      }
+      return saved.profile;
+    },
+    [userId]
+  );
 
-  const savePreferences = useCallback(async (nextPreferences) => {
-    const saved = await updatePreferences(nextPreferences);
-    setPreferences(saved);
-    await AsyncStorage.setItem(CACHE_KEYS.preferences, JSON.stringify(saved));
-    const interest = await fetchInterestProfile();
-    setInterestProfile(interest);
-    await AsyncStorage.setItem(CACHE_KEYS.interestProfile, JSON.stringify(interest));
-    return saved;
-  }, []);
+  const finishOnboarding = useCallback(
+    async (finalPreferences) => {
+      const result = await completeOnboarding(finalPreferences);
+      setProfile(result.profile);
+      setPreferences(result.preferences);
+      if (userId) {
+        await writeUserCache(userId, 'profile', result.profile);
+        await writeUserCache(userId, 'preferences', result.preferences);
+        await writeUserCache(userId, 'onboarding_step', 'completed');
+      }
+      setProfileState(PROFILE_STATES.LOADED);
+      return result;
+    },
+    [userId]
+  );
+
+  const savePreferences = useCallback(
+    async (nextPreferences) => {
+      const saved = await updatePreferences(nextPreferences);
+      setPreferences(saved);
+      if (userId) {
+        await writeUserCache(userId, 'preferences', saved);
+      }
+      const interest = await fetchInterestProfile();
+      setInterestProfile(interest);
+      if (userId) {
+        await writeUserCache(userId, 'interest_profile', interest);
+      }
+      return saved;
+    },
+    [userId]
+  );
 
   useEffect(() => {
-    if (enabled) {
+    reset();
+  }, [userId, reset]);
+
+  useEffect(() => {
+    if (enabled && userId) {
       refresh();
     }
-  }, [enabled, refresh]);
+  }, [enabled, userId, refresh]);
+
+  const shouldShowOnboarding = useMemo(() => {
+    if (!enabled || !userId) return false;
+    if (profileState !== PROFILE_STATES.LOADED && profileState !== PROFILE_STATES.OFFLINE_CACHED) {
+      return false;
+    }
+    return Boolean(profile && profile.onboarding_status !== 'completed');
+  }, [enabled, userId, profileState, profile]);
 
   return {
     profile,
     preferences,
     interestProfile,
-    loading,
+    profileState,
+    loading: profileState === PROFILE_STATES.LOADING,
     error,
     refresh,
+    reset,
     beginOnboarding,
     persistStep,
     finishOnboarding,
     savePreferences,
-    needsOnboarding: profile ? profile.onboarding_status !== 'completed' : false,
+    shouldShowOnboarding,
+    needsOnboarding: shouldShowOnboarding,
     onboardingStep: profile?.onboarding_step || 'welcome',
+    isProfileResolved:
+      profileState === PROFILE_STATES.LOADED || profileState === PROFILE_STATES.OFFLINE_CACHED,
   };
 }
 
-export async function clearProfileCache() {
-  await AsyncStorage.multiRemove(Object.values(CACHE_KEYS));
+export async function clearProfileCache(userId) {
+  if (userId) {
+    await clearUserCache(userId);
+    return;
+  }
+  await clearLegacyGlobalCache();
 }
+
+export { cacheKey };
