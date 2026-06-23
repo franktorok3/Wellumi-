@@ -143,7 +143,16 @@ function computeTriggerScore({
   };
 }
 
-function buildPersonalizationReason({ profile, aggregates, storyCategory, signals = [] }) {
+function buildPersonalizationReason({ profile, aggregates, storyCategory, signals = [], safetyContext = null }) {
+  if (safetyContext?.matchType === 'exact_product' && profile?.productName) {
+    return `Recall notice involving ${profile.productName}, a product you scanned`;
+  }
+  if (safetyContext?.matchType === 'brand_only' && profile?.brand) {
+    return `An older ${profile.brand} recall to review against what you scanned`;
+  }
+  if (safetyContext?.matchType === 'category_only') {
+    return 'A recent hummus recall update';
+  }
   if (signals.includes('direct_product_recall_match') && profile?.brand) {
     return `A safety update involving ${profile.brand}, a brand you scanned`;
   }
@@ -172,7 +181,7 @@ function buildPersonalizationReason({ profile, aggregates, storyCategory, signal
     return `Related to your interest in sleep routines and ${profile.primaryIngredient}`;
   }
   if (!profile) {
-    return 'A general Wellumi wellness story';
+    return 'Source-backed wellness context from official guidance.';
   }
   return `Related to your ${profile.broaderCategory || 'wellness'} scans`;
 }

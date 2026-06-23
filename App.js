@@ -590,6 +590,12 @@ function FeedCard({ card, onPress }) {
           </View>
           <Text style={styles.feedCta} numberOfLines={1}>Read story ›</Text>
         </View>
+        {__DEV__ && !!card.generationMode ? (
+          <Text style={styles.feedDevMeta}>
+            generation_mode: {card.generationMode}
+            {card.fallbackReason ? ` · ${card.fallbackReason}` : ''}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -1192,6 +1198,11 @@ const styles = StyleSheet.create({
   },
   feedPillText: { color: colors.green, ...typography.label, fontWeight: '700', flex: 1 },
   feedCta: { color: colors.green, ...typography.caption, fontWeight: '800', flexShrink: 0 },
+  feedDevMeta: {
+    color: colors.mutedLight,
+    ...typography.micro,
+    marginTop: spacing.xs,
+  },
   filterRow: { marginHorizontal: -layout.screenPaddingX, marginBottom: spacing.lg - 2 },
   filterRowContent: { paddingHorizontal: layout.screenPaddingX, gap: spacing.sm },
   filterChip: {

@@ -2,8 +2,14 @@ const { getSupabaseAdmin } = require('./supabase');
 const { listUserScans, listSavedProducts } = require('./scanWorkflow');
 const { hasSuccessfulProvider, isCompleteProviderFailure } = require('../utils/feedRefreshPolicy');
 const { buildUserInterestModel } = require('../content/productInterestClassifier');
-const { BASE_FEED_MIX_TARGETS, getBaseTopicsForMix } = require('../content/baseFeedTopics');
+const {
+  BASE_FEED_MIX_TARGETS,
+  REQUIRED_BASE_TOPIC_IDS,
+  getBaseTopicsForMix,
+  getTopicById,
+} = require('../content/baseFeedTopics');
 const { filterRelevantSources, scoreSourceRecord } = require('../content/sourceRelevance');
+const { acceptsStoryForDisplay } = require('../content/feedQuality');
 const {
   TRIGGER_SCORE_THRESHOLD,
   computeTriggerScore,
@@ -11,6 +17,8 @@ const {
 } = require('../content/triggerScore');
 const { computeRankScore, applyFeedMix } = require('../content/storyRanking');
 const { collectSourcesForTopic, collectSourcesForProfile } = require('../providers/sourceProviders');
+const { getEvergreenForTopic, getEvergreenStorySeed } = require('../content/evergreenGuidance');
+const { evaluateSafetyEligibility } = require('../content/safetyRecall');
 const { generateWellnessStory, STORY_PROMPT_VERSION } = require('./storyGenerator');
 
 const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -55,6 +63,12 @@ async function upsertSourceRecord(record) {
         source_strength: record.source_strength,
         freshness_score: record.freshness_score,
         safety_relevance: record.safety_relevance,
+        is_evergreen: Boolean(record.is_evergreen),
+        last_reviewed_at: record.last_reviewed_at || null,
+        recall_status: record.recall_status || null,
+        recall_product_description: record.recall_product_description || null,
+        recall_reason: record.recall_reason || null,
+        recall_initiation_date: record.recall_initiation_date || null,
       },
       { onConflict: 'provider,external_id' }
     )
@@ -86,6 +100,7 @@ async function createStoryWithSources({
   safetyFlag,
   triggerScore,
   sourceDbRecords,
+  displayEligible = true,
 }) {
   const supabase = getSupabaseAdmin();
   const freshnessDate = sourceDbRecords
@@ -112,6 +127,9 @@ async function createStoryWithSources({
       freshness_date: freshnessDate,
       model: generated.model,
       prompt_version: generated.prompt_version || STORY_PROMPT_VERSION,
+      generation_mode: generated.generation_mode || 'fallback',
+      fallback_reason: generated.fallback_reason || null,
+      display_eligible: displayEligible,
       generated_at: new Date().toISOString(),
     })
     .select('*')
@@ -160,6 +178,41 @@ async function upsertUserStoryMatch({
   return data;
 }
 
+function buildGeneralReason(topic) {
+  const seed = getEvergreenStorySeed(topic?.id);
+  if (seed?.deck) return seed.deck;
+  if (topic?.titleConcept) return `Practical context on ${topic.titleConcept}.`;
+  return 'Source-backed wellness context from official guidance.';
+}
+
+function scoreAndFilterSources(sourceRecords, { topic = null, profile = null } = {}) {
+  const scored = sourceRecords.map((record) => {
+    const scores = scoreSourceRecord(record, {
+      searchConcepts: topic?.searchConcepts || profile?.lifestyleTopics || [],
+      excludedConcepts: topic?.excludedConcepts || [],
+      freshnessWindowDays: topic?.freshnessWindowDays,
+      brand: profile?.brand,
+      productCategory: profile?.productCategory,
+    });
+    return {
+      ...record,
+      consumer_relevance: record.consumer_relevance ?? scores.consumerRelevance,
+      safety_relevance: record.safety_relevance ?? scores.safetyRelevance,
+      source_strength: record.source_strength ?? scores.sourceStrength,
+      freshness_score: record.freshness_score ?? scores.freshnessScore,
+    };
+  });
+
+  const evergreen = scored.filter((record) => record.is_evergreen);
+  const live = scored.filter((record) => !record.is_evergreen);
+  const filteredLive = filterRelevantSources(live, {
+    minimumSourceQuality: topic?.minimumSourceQuality || 0.45,
+    excludedConcepts: topic?.excludedConcepts || [],
+  });
+
+  return [...evergreen, ...filteredLive];
+}
+
 async function maybeCreateStory({
   userId,
   sourceRecords,
@@ -172,40 +225,47 @@ async function maybeCreateStory({
   isGeneral,
   productId = null,
 }) {
-  const filtered = filterRelevantSources(sourceRecords, {
-    minimumSourceQuality: topic?.minimumSourceQuality || 0.45,
-    excludedConcepts: topic?.excludedConcepts || [],
-  });
-  if (!filtered.length) return null;
+  const scoredFiltered = scoreAndFilterSources(sourceRecords, { topic, profile });
+  if (!scoredFiltered.length) return null;
 
-  const scoredFiltered = filtered.map((record) => {
-    const scores = scoreSourceRecord(record, {
-      searchConcepts: topic?.searchConcepts || profile?.lifestyleTopics || [],
-      excludedConcepts: topic?.excludedConcepts || [],
-      freshnessWindowDays: topic?.freshnessWindowDays,
-      brand: profile?.brand,
-      productCategory: profile?.productCategory,
-    });
-    return {
-      ...record,
-      consumer_relevance: scores.consumerRelevance,
-      safety_relevance: scores.safetyRelevance,
-      source_strength: scores.sourceStrength,
-      freshness_score: scores.freshnessScore,
-    };
-  });
+  let safetyContext = null;
+  let eligibleSafetyRecords = scoredFiltered;
+  if (storyCategory === 'safety_and_recalls' || scoredFiltered.some((r) => r.provider?.includes('openfda'))) {
+    eligibleSafetyRecords = [];
+    for (const record of scoredFiltered) {
+      if (!record.provider?.includes('openfda')) {
+        eligibleSafetyRecords.push(record);
+        continue;
+      }
+      safetyContext = evaluateSafetyEligibility(record, profile);
+      if (safetyContext.displayEligible) {
+        eligibleSafetyRecords.push(safetyContext.normalized);
+      }
+    }
+    if (!eligibleSafetyRecords.length) return null;
+    if (storyCategory === 'safety_and_recalls' && safetyContext && !safetyContext.displayEligible) {
+      return null;
+    }
+  }
+
+  const workingRecords =
+    storyCategory === 'safety_and_recalls'
+      ? eligibleSafetyRecords.filter((record) => record.provider?.includes('openfda'))
+      : eligibleSafetyRecords;
+
+  if (!workingRecords.length) return null;
 
   if (
     !isGeneral &&
     profile?.researchPriority === 'low' &&
     storyCategory !== 'safety_and_recalls' &&
-    !scoredFiltered.some((record) => (record.safety_relevance || 0) >= 0.85)
+    !workingRecords.some((record) => (record.safety_relevance || 0) >= 0.85)
   ) {
     return null;
   }
 
   const trigger = computeTriggerScore({
-    sourceRecords: scoredFiltered,
+    sourceRecords: workingRecords,
     profile,
     topic,
     aggregates,
@@ -213,43 +273,65 @@ async function maybeCreateStory({
     isPersonalized: !isGeneral,
   });
 
-  if (!trigger.passesThreshold && trigger.score < TRIGGER_SCORE_THRESHOLD) {
+  const evergreenOnly = workingRecords.every((record) => record.is_evergreen);
+  const threshold = evergreenOnly ? 4 : TRIGGER_SCORE_THRESHOLD;
+  if (trigger.score < threshold) {
     if (IS_DEV) {
       console.log('[wellumi-story] skipped', {
         storyCategory,
         score: trigger.score,
-        threshold: TRIGGER_SCORE_THRESHOLD,
+        threshold,
       });
     }
     return null;
   }
 
   const personalizationReason = isGeneral
-    ? 'A general Wellumi wellness story'
+    ? buildGeneralReason(topic)
     : buildPersonalizationReason({
         profile,
         aggregates,
         storyCategory,
         signals: trigger.signals,
+        safetyContext,
       });
 
   const generated = await generateWellnessStory({
-    sourceRecords: scoredFiltered,
+    sourceRecords: workingRecords,
     storyCategory,
     topic,
     profile,
     personalizationReason,
     isGeneral,
+    safetyContext,
   });
 
+  const quality = acceptsStoryForDisplay({
+    generated,
+    sourceRecords: workingRecords,
+    storyCategory,
+    safetyContext,
+  });
+  if (!quality.accepted) {
+    if (IS_DEV) {
+      console.log('[wellumi-story] rejected', {
+        storyCategory,
+        reason: quality.reason,
+        generation_mode: generated.generation_mode,
+        fallback_reason: generated.fallback_reason,
+      });
+    }
+    return null;
+  }
+
   const storedSources = [];
-  for (const record of scoredFiltered) {
+  for (const record of workingRecords) {
     storedSources.push(await upsertSourceRecord(record));
   }
 
   const safetyFlag =
-    storyCategory === 'safety_and_recalls' ||
-    scoredFiltered.some((record) => (record.safety_relevance || 0) >= 0.85);
+    Boolean(safetyContext?.showSafetyBadge) ||
+    (storyCategory === 'safety_and_recalls' && safetyContext?.displayEligible);
 
   const story = await createStoryWithSources({
     generated,
@@ -260,6 +342,7 @@ async function maybeCreateStory({
     safetyFlag,
     triggerScore: trigger.score,
     sourceDbRecords: storedSources,
+    displayEligible: true,
   });
 
   const rankScore = computeRankScore({
@@ -280,7 +363,48 @@ async function maybeCreateStory({
     isPersonalized: !isGeneral,
   });
 
-  return { story, match, trigger, sources: storedSources };
+  if (IS_DEV) {
+    console.log('[wellumi-story] created', {
+      title: story.title,
+      generation_mode: story.generation_mode,
+      fallback_reason: story.fallback_reason,
+      isGeneral,
+      storyCategory,
+    });
+  }
+
+  return { story, match, trigger, sources: storedSources, topicId: topic?.id || null };
+}
+
+async function ensureBaseFeedStories(userId, createdMatches, interestModel) {
+  const createdTopicIds = new Set(
+    createdMatches
+      .filter((item) => item.story?.is_general)
+      .map((item) => item.topicId || item.story?.topics?.[0])
+      .filter(Boolean)
+  );
+
+  for (const topicId of REQUIRED_BASE_TOPIC_IDS) {
+    if (createdTopicIds.has(topicId)) continue;
+    const topic = getTopicById(topicId);
+    if (!topic) continue;
+    const evergreen = getEvergreenForTopic(topicId);
+    if (!evergreen.length) continue;
+    const created = await maybeCreateStory({
+      userId,
+      sourceRecords: evergreen,
+      storyCategory: topic.storyCategory,
+      lifestyleCategory: topic.lifestyleCategory,
+      topics: [topic.id, topic.titleConcept],
+      topic,
+      aggregates: interestModel.aggregates,
+      isGeneral: true,
+    });
+    if (created) {
+      createdMatches.push(created);
+      createdTopicIds.add(topicId);
+    }
+  }
 }
 
 async function refreshUserFeed(userId, { force = false } = {}) {
@@ -311,13 +435,13 @@ async function refreshUserFeed(userId, { force = false } = {}) {
     productStats.set(saved.product.id, current);
   }
 
-  for (const [productId, entry] of productStats.entries()) {
-    const profile = interestModel.profiles.find((item) => item.productName === entry.product.name) ||
-      interestModel.profiles.find((item) => item.brand === entry.product.brand);
-    if (profile) {
+  for (const profile of interestModel.profiles) {
+    const productId = profile.productId || null;
+    const productEntry = productId ? productStats.get(productId) : null;
+    if (productId && profile) {
       await upsertInterestProfile(userId, productId, profile, {
-        scanCount: entry.scanCount,
-        isSaved: entry.isSaved,
+        scanCount: productEntry?.scanCount || 1,
+        isSaved: productEntry?.isSaved || false,
       });
     }
   }
@@ -326,6 +450,16 @@ async function refreshUserFeed(userId, { force = false } = {}) {
   for (const topic of baseTopics) {
     const { records, providerResults: topicProviders } = await collectSourcesForTopic(topic);
     providerResults.push(...topicProviders);
+
+    if (topic.storyCategory === 'safety_and_recalls') {
+      const recentSafety = records.filter((record) => {
+        if (!record.provider?.includes('openfda')) return false;
+        const eligibility = evaluateSafetyEligibility(record, null);
+        return eligibility.displayEligible && !eligibility.historical;
+      });
+      if (!recentSafety.length) continue;
+    }
+
     const created = await maybeCreateStory({
       userId,
       sourceRecords: records,
@@ -339,50 +473,54 @@ async function refreshUserFeed(userId, { force = false } = {}) {
     if (created) createdMatches.push(created);
   }
 
+  await ensureBaseFeedStories(userId, createdMatches, interestModel);
+
   for (const profile of interestModel.profiles) {
     const productId = profile.productId || null;
     const productEntry = productId ? productStats.get(productId) : null;
-    const enrichedProfile = { ...profile, isSaved: productEntry?.isSaved || profile.isSaved || false };
+    const enrichedProfile = { ...profile, isSaved: productEntry?.isSaved || false };
 
     const { records, providerResults: profileProviders } = await collectSourcesForProfile(enrichedProfile);
     providerResults.push(...profileProviders);
+    if (!records.length) continue;
 
-    if (records.length) {
-      const storyCategory =
-        records.some((record) => (record.safety_relevance || 0) >= 0.85)
-          ? 'safety_and_recalls'
-          : profile.primaryIngredient
-            ? 'ingredient_spotlight'
-            : profile.productCategory === 'otc_medication'
-              ? 'medicine_cabinet'
-              : profile.productCategory === 'packaged_food'
-                ? 'everyday_wellness'
-                : profile.productCategory === 'bottled_water'
-                  ? 'everyday_wellness'
-                  : 'everyday_wellness';
+    const hasEligibleSafety = records.some((record) => {
+      if (!record.provider?.includes('openfda')) return false;
+      return evaluateSafetyEligibility(record, enrichedProfile).displayEligible;
+    });
 
-      const created = await maybeCreateStory({
-        userId,
-        sourceRecords: records,
-        storyCategory,
-        lifestyleCategory: profile.lifestyleTopics[0] || 'everyday_wellness',
-        topics: [
-          profile.productCategory,
-          profile.primaryIngredient,
-          profile.activeIngredient,
-          ...profile.lifestyleTopics,
-        ].filter(Boolean),
-        profile: enrichedProfile,
-        aggregates: interestModel.aggregates,
-        isGeneral: false,
-        productId,
-      });
-      if (created) createdMatches.push(created);
-    }
+    const storyCategory = hasEligibleSafety
+      ? 'safety_and_recalls'
+      : profile.primaryIngredient
+        ? 'ingredient_spotlight'
+        : profile.productCategory === 'otc_medication'
+          ? 'medicine_cabinet'
+          : profile.productCategory === 'packaged_food'
+            ? 'everyday_wellness'
+            : 'everyday_wellness';
+
+    const created = await maybeCreateStory({
+      userId,
+      sourceRecords: records,
+      storyCategory,
+      lifestyleCategory: profile.lifestyleTopics[0] || 'everyday_wellness',
+      topics: [
+        profile.productCategory,
+        profile.primaryIngredient,
+        profile.activeIngredient,
+        ...profile.lifestyleTopics,
+      ].filter(Boolean),
+      profile: enrichedProfile,
+      aggregates: interestModel.aggregates,
+      isGeneral: false,
+      productId,
+    });
+    if (created) createdMatches.push(created);
   }
 
-  const anyProviderSucceeded = hasSuccessfulProvider(providerResults);
-  const allProvidersFailed = isCompleteProviderFailure(providerResults);
+  const anyProviderSucceeded =
+    hasSuccessfulProvider(providerResults) || createdMatches.length > 0;
+  const allProvidersFailed = isCompleteProviderFailure(providerResults) && !createdMatches.length;
 
   if (allProvidersFailed) {
     return {
@@ -402,6 +540,7 @@ async function refreshUserFeed(userId, { force = false } = {}) {
   if (IS_DEV) {
     console.log('[wellumi-story-feed] refresh complete', {
       stories: createdMatches.length,
+      generalStories: createdMatches.filter((item) => item.story?.is_general).length,
       providers: providerResults.length,
       mixTargets: BASE_FEED_MIX_TARGETS,
     });
@@ -448,6 +587,9 @@ async function listUserFeed(userId, { limit = 30 } = {}) {
         trigger_score,
         freshness_date,
         generated_at,
+        generation_mode,
+        fallback_reason,
+        display_eligible,
         wellness_story_sources (
           citation_order,
           source_record:source_records (
@@ -461,7 +603,9 @@ async function listUserFeed(userId, { limit = 30 } = {}) {
             published_at,
             source_url,
             source_strength,
-            safety_relevance
+            safety_relevance,
+            recall_status,
+            recall_initiation_date
           )
         )
       )
@@ -470,7 +614,7 @@ async function listUserFeed(userId, { limit = 30 } = {}) {
     .eq('user_id', userId)
     .eq('is_dismissed', false)
     .order('rank_score', { ascending: false })
-    .limit(limit * 2);
+    .limit(limit * 3);
 
   if (error) {
     throw new Error(`Could not load wellness feed: ${error.message}`);
@@ -516,4 +660,6 @@ module.exports = {
   dismissFeedItem,
   TRIGGER_SCORE_THRESHOLD,
   STORY_PROMPT_VERSION,
+  maybeCreateStory,
+  ensureBaseFeedStories,
 };

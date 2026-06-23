@@ -92,6 +92,12 @@ export function FeedDetailScreen({
         {!!item.sourceStrengthLabel && (
           <Text style={styles.resultMeta}>Source strength: {item.sourceStrengthLabel}</Text>
         )}
+        {__DEV__ && !!item.generationMode ? (
+          <Text style={styles.feedDevMeta}>
+            generation_mode: {item.generationMode}
+            {item.fallbackReason ? ` · ${item.fallbackReason}` : ''}
+          </Text>
+        ) : null}
       </View>
 
       {Object.entries(STORY_SECTION_LABELS).map(([key, label]) => {

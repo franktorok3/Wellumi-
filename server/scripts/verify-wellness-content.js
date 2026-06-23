@@ -15,7 +15,9 @@ const {
 } = require('../src/content/triggerScore');
 const { rankStories, computeRankScore } = require('../src/content/storyRanking');
 const { getBaseTopicsForMix } = require('../src/content/baseFeedTopics');
-const { buildTemplateStory } = require('../src/services/storyGenerator');
+const { buildFactualFallbackStory } = require('../src/services/storyGenerator');
+const { getEvergreenForTopic } = require('../src/content/evergreenGuidance');
+const { evaluateSafetyEligibility } = require('../src/content/safetyRecall');
 const { STORY_PROMPT_VERSION } = require('../src/services/wellnessFeedWorkflow');
 
 const deerPark = {
@@ -68,11 +70,32 @@ const deerParkRecall = {
   source_type: 'food_recall',
   external_id: 'recall-1',
   title: 'Deer Park bottled water recalled due to labeling issue',
-  summary: 'Recalling firm: Deer Park. Reason: mislabeled product description.',
+  summary: 'Product: Deer Park bottled water · Reason: mislabeled product description · Status: Ongoing',
   published_at: '20250601',
   source_url: 'https://api.fda.gov/food/enforcement.json',
   safety_relevance: 1,
   consumer_relevance: 0.95,
+  raw_payload: {
+    status: 'Ongoing',
+    product_description: 'Deer Park bottled water',
+    reason_for_recall: 'mislabeled product description',
+    recalling_firm: 'Deer Park',
+    recall_initiation_date: '20250601',
+  },
+};
+
+const sabraNutriments = {
+  per_100g: {
+    energy_kcal_100g: 255.555555,
+    fat_100g: 16.6666666666667,
+    'saturated-fat_100g': 2.38,
+    carbohydrates_100g: 20,
+    sugars_100g: 0.5,
+    fiber_100g: 6.67,
+    proteins_100g: 6.67,
+    salt_100g: 1.08,
+    'nova-group_100g': 3,
+  },
 };
 
 function demoStory({ profile, sources, storyCategory, isGeneral, isSaved = false, topic = null }) {
@@ -98,13 +121,20 @@ function demoStory({ profile, sources, storyCategory, isGeneral, isSaved = false
     isPersonalized: !isGeneral,
   });
   const reason = isGeneral
-    ? 'A general Wellumi wellness story'
+    ? 'Practical context on hydration and bottled-water labels.'
     : buildPersonalizationReason({ profile: enriched, storyCategory, signals: trigger.signals });
-  const story = buildTemplateStory({
+  const safetyContext =
+    storyCategory === 'safety_and_recalls' && scoredFiltered.some((s) => s.provider?.includes('openfda'))
+      ? evaluateSafetyEligibility(scoredFiltered.find((s) => s.provider?.includes('openfda')), enriched)
+      : null;
+  const story = buildFactualFallbackStory({
     sourceRecords: scoredFiltered,
     storyCategory,
+    topic,
     profile: enriched,
     personalizationReason: reason,
+    safetyContext,
+    fallbackReason: 'verify_demo',
   });
   const rankScore = computeRankScore({
     triggerScore: trigger.score,
@@ -146,13 +176,13 @@ assert.ok(getBaseTopicsForMix().length >= 6, 'new users should have base lifesty
 
 const waterStory = demoStory({
   profile: waterProfile,
-  sources: [hydrationReview],
+  sources: getEvergreenForTopic('hydration-habits'),
   storyCategory: 'everyday_wellness',
   isGeneral: true,
   topic: getBaseTopicsForMix().find((item) => item.id === 'hydration-habits'),
 });
-assert.ok(waterStory.triggerScore >= TRIGGER_SCORE_THRESHOLD);
-assert.match(waterStory.reason, /general Wellumi/i);
+assert.ok(waterStory.triggerScore >= 4);
+assert.ok(!/general wellumi wellness story/i.test(waterStory.reason));
 assert.ok(!waterStory.sources.some((source) => /hydrogel/i.test(source.title)));
 
 const filteredIndustrial = filterRelevantSources([industrialWaterPaper, hydrationReview], {
@@ -239,14 +269,17 @@ const freshTrigger = computeTriggerScore({
 });
 assert.ok(freshTrigger.score > oldTrigger.score);
 
-const generated = buildTemplateStory({
-  sourceRecords: [hydrationReview],
+const generated = buildFactualFallbackStory({
+  sourceRecords: getEvergreenForTopic('hydration-habits'),
   storyCategory: 'everyday_wellness',
+  topic: { id: 'hydration-habits' },
   profile: waterProfile,
   personalizationReason: 'Related to your hydration scans',
+  fallbackReason: 'verify_demo',
 });
 assert.ok(generated.title);
 assert.ok(generated.sections.what_reliable_sources_say);
+assert.ok(!generated.sections.everyday_explanation);
 
 const personalizedReason = buildPersonalizationReason({
   profile: waterProfile,
@@ -261,12 +294,10 @@ assert.match(appJs, /screenPaddingBottom: 148/);
 assert.match(appJs, /__DEV__ && !!userId/);
 
 const nutrition = require('../src/utils/formatNutrition');
-const formatted = nutrition.formatNutritionEntries({
-  per_100g: { proteins_100g: 16.6666666666667, sodium_100g: 0.123456 },
-});
-const protein = formatted.find((entry) => entry.key === 'proteins_100g');
-assert.ok(protein.display.includes('16.7'));
-assert.ok(protein.display.includes('per 100 g'));
+const formatted = nutrition.formatNutritionEntries(sabraNutriments);
+const protein = formatted.entries.find((entry) => entry.key === 'protein');
+assert.ok(protein.display.includes('6.67'));
+assert.ok(formatted.basis.includes('per 100 g'));
 
 console.log('\n=== Demo feed: Deer Park bottled water (general hydration story) ===');
 console.log(JSON.stringify(waterStory, null, 2));

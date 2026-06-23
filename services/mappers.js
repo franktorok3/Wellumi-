@@ -58,6 +58,9 @@ export function mapAnalysisToResultSummary(analysis) {
   const scan = analysis.scan || null;
   const analysisRecord = analysis.analysis || null;
   const nutritionData = analysis.label_facts?.nutrition_data || product?.nutrition_data || null;
+  const nutrition = formatNutritionEntries(nutritionData);
+  const aiSections = buildSectionsFromPayload(analysis).filter((section) => section.kind === 'ai_context');
+  const usedAiLabelAnalysis = Boolean(analysisRecord?.model);
 
   return {
     productId: product?.id || analysis.productId || null,
@@ -75,7 +78,8 @@ export function mapAnalysisToResultSummary(analysis) {
       '',
     ingredientsText: analysis.label_facts?.ingredients_text || product?.ingredients_text || null,
     nutritionData,
-    nutritionEntries: formatNutritionEntries(nutritionData),
+    nutritionEntries: nutrition.entries,
+    nutritionBasis: nutrition.basis,
     imageUrl: scan?.image_signed_url || product?.product_image_url || null,
     neutralDisclaimer:
       analysis.ai_context?.disclaimer ||
@@ -87,7 +91,8 @@ export function mapAnalysisToResultSummary(analysis) {
     sources: analysis.sources || [],
     persisted: Boolean(analysis.persisted),
     sections: buildSectionsFromPayload(analysis),
-    aiSections: buildSectionsFromPayload(analysis).filter((section) => section.kind === 'ai_context'),
+    aiSections,
+    usedAiLabelAnalysis,
     analysisDate: formatDateLabel(analysisRecord?.created_at || scan?.created_at),
     product,
     analysis: analysisRecord,
@@ -213,6 +218,8 @@ export function mapWellnessStoryToCard(item) {
     isGeneral: Boolean(story.is_general),
     safetyFlag: Boolean(story.safety_flag),
     sourceStrengthLabel: story.source_strength_label,
+    generationMode: story.generation_mode || 'fallback',
+    fallbackReason: story.fallback_reason || null,
     isRead: item.is_read,
     sections: story.body || {},
     sources,

@@ -1,4 +1,5 @@
 const { normalizeExternalDate } = require('../utils/normalizeExternalDate');
+const { normalizeRecallRecord } = require('../content/safetyRecall');
 const {
   fetchFoodRecalls,
   fetchDrugRecalls,
@@ -7,6 +8,8 @@ const {
 } = require('../services/openFda');
 const { searchPubMed } = require('../services/pubmed');
 const { scoreSourceRecord } = require('../content/sourceRelevance');
+const { getEvergreenForTopic } = require('../content/evergreenGuidance');
+const { evaluateSafetyEligibility } = require('../content/safetyRecall');
 
 function normalizeProviderRecord(record, provider) {
   return {
@@ -27,7 +30,7 @@ async function searchOpenFdaFood(query, { limit = 5, context = {} } = {}) {
   const recalls = await fetchFoodRecalls({ search: query, limit });
   return recalls.map((recall) => {
     const mapped = mapFoodRecallToFeedItem(recall);
-    const normalized = normalizeProviderRecord(mapped, 'openfda_food');
+    const normalized = normalizeRecallRecord(normalizeProviderRecord(mapped, 'openfda_food'));
     const scores = scoreSourceRecord(normalized, context);
     return { ...normalized, ...scores, consumer_relevance: scores.consumerRelevance ?? scores.consumer_relevance };
   });
@@ -37,7 +40,7 @@ async function searchOpenFdaDrug(query, { limit = 5, context = {} } = {}) {
   const recalls = await fetchDrugRecalls({ search: query, limit });
   return recalls.map((recall) => {
     const mapped = mapDrugRecallToFeedItem(recall);
-    const normalized = normalizeProviderRecord(mapped, 'openfda_drug');
+    const normalized = normalizeRecallRecord(normalizeProviderRecord(mapped, 'openfda_drug'));
     const scores = scoreSourceRecord(normalized, context);
     return { ...normalized, ...scores, consumer_relevance: scores.consumerRelevance ?? scores.consumer_relevance };
   });
@@ -53,6 +56,10 @@ async function searchPubMedProvider(term, { retmax = 3, context = {} } = {}) {
 }
 
 async function searchProvider(providerName, query, options = {}) {
+  if (providerName === 'official_guidance') {
+    const topicId = options.topicId;
+    return topicId ? getEvergreenForTopic(topicId) : [];
+  }
   if (!query || !String(query).trim()) return [];
   if (providerName === 'openfda_food') return searchOpenFdaFood(query, options);
   if (providerName === 'openfda_drug') return searchOpenFdaDrug(query, options);
@@ -64,11 +71,23 @@ async function collectSourcesForTopic(topic, context = {}) {
   const records = [];
   const providerResults = [];
 
+  const evergreen = getEvergreenForTopic(topic.id);
+  records.push(...evergreen);
+  if (evergreen.length) {
+    providerResults.push({
+      provider: `official_guidance:${topic.id}`,
+      success: true,
+      candidateCount: evergreen.length,
+    });
+  }
+
   for (const concept of topic.searchConcepts || []) {
     for (const providerName of topic.preferredSourceTypes || []) {
+      if (providerName === 'official_guidance') continue;
       try {
         const results = await searchProvider(providerName, concept, {
           limit: providerName === 'pubmed' ? 2 : 3,
+          topicId: topic.id,
           context: {
             ...context,
             searchConcepts: topic.searchConcepts,
@@ -76,9 +95,10 @@ async function collectSourcesForTopic(topic, context = {}) {
             freshnessWindowDays: topic.freshnessWindowDays,
           },
         });
-        const filtered = results.filter(
-          (record) => (record.consumer_relevance || 0) >= (topic.minimumSourceQuality || 0.45)
-        );
+        const filtered = results.filter((record) => {
+          if (record.is_evergreen) return true;
+          return (record.consumer_relevance || 0) >= (topic.minimumSourceQuality || 0.45);
+        });
         records.push(...filtered);
         providerResults.push({
           provider: `${providerName}:${topic.id}`,
@@ -116,7 +136,12 @@ async function collectSourcesForProfile(profile, context = {}) {
         limit: 3,
         context: { ...context, brand: profile.brand, productCategory: profile.productCategory },
       });
-      records.push(...results);
+      for (const record of results) {
+        const eligibility = evaluateSafetyEligibility(record, profile);
+        if (eligibility.displayEligible) {
+          records.push(eligibility.normalized);
+        }
+      }
       providerResults.push({ provider: `${providerName}:${query}`, success: true, candidateCount: results.length });
     } catch (error) {
       providerResults.push({ provider: `openfda:${query}`, success: false, candidateCount: 0, error: error.message });

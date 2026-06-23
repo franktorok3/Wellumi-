@@ -53,10 +53,17 @@ function diversifyStories(matches, { maxPerCategory = 2, maxPerProduct = 1 } = {
     const productKey =
       Array.isArray(match.matched_products) && match.matched_products[0]
         ? match.matched_products[0]
-        : 'general';
+        : match.story?.is_general
+          ? `general:${match.matched_interests?.[0] || match.story?.topics?.[0] || category}`
+          : 'general';
 
     if ((categoryCounts.get(category) || 0) >= maxPerCategory) continue;
-    if ((productCounts.get(productKey) || 0) >= maxPerProduct) continue;
+    if (
+      !match.story?.is_general &&
+      (productCounts.get(productKey) || 0) >= maxPerProduct
+    ) {
+      continue;
+    }
 
     categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
     productCounts.set(productKey, (productCounts.get(productKey) || 0) + 1);
@@ -67,20 +74,28 @@ function diversifyStories(matches, { maxPerCategory = 2, maxPerProduct = 1 } = {
 }
 
 function applyFeedMix(matches, { hasPersonalization = false } = {}) {
+  const eligible = (matches || []).filter((item) => item.story?.display_eligible !== false);
+
   if (!hasPersonalization) {
-    return diversifyStories(matches, { maxPerCategory: 2, maxPerProduct: 1 }).slice(0, 6);
+    return diversifyStories(eligible, { maxPerCategory: 2, maxPerProduct: 1 }).slice(0, 6);
   }
 
-  const ranked = rankStories(matches);
-  const personalized = ranked.filter((item) => item.is_personalized).slice(0, 3);
+  const ranked = rankStories(eligible);
+  const personalized = ranked.filter((item) => item.is_personalized);
   const general = ranked.filter((item) => !item.is_personalized);
-  const safety = general.filter((item) => item.story?.safety_flag).slice(0, 2);
-  const lifestyle = general.filter((item) => !item.story?.safety_flag);
+  const safety = general.filter((item) => item.story?.safety_flag).slice(0, 1);
+  const generalPool = general.filter((item) => !item.story?.safety_flag);
 
-  return diversifyStories([...safety, ...personalized, ...lifestyle], {
+  const personalizedPicked = diversifyStories(personalized, {
     maxPerCategory: 2,
     maxPerProduct: 1,
-  }).slice(0, 8);
+  }).slice(0, 3);
+  const generalPicked = diversifyStories(generalPool, {
+    maxPerCategory: 2,
+    maxPerProduct: 1,
+  }).slice(0, Math.max(3, 4 - safety.length));
+
+  return [...safety, ...personalizedPicked, ...generalPicked].slice(0, 8);
 }
 
 module.exports = {
