@@ -286,7 +286,8 @@ function hydrationProfile() {
   const path = require('path');
   const useProfile = fs.readFileSync(path.join(__dirname, '../../hooks/useProfile.js'), 'utf8');
   assert.match(useProfile, /activeOwnerRef/);
-  assert.match(useProfile, /activeOwnerRef\.current !== ownerId/);
+  assert.match(useProfile, /refreshGenerationRef/);
+  assert.match(useProfile, /isLatestRefresh/);
 
   function cacheKey(userId, suffix) {
     return `wellumi.${userId}.${suffix}`;

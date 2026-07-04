@@ -328,8 +328,8 @@ export default function App() {
                 await clearUserCache(oldUserId);
               }
               await signOutAndReset();
-              await auth.refresh();
-              await profileState.refresh();
+              const nextAuth = await auth.refresh();
+              await profileState.refresh(nextAuth.userId);
               await data.hydrate();
             } catch (error) {
               Alert.alert('Could not sign out', error?.message || 'Please try again.');
@@ -434,6 +434,22 @@ export default function App() {
     );
   }
 
+  if (auth.status === 'ready' && auth.userId && profileState.profileState === PROFILE_STATES.ERROR) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <ErrorState
+          title="Could not load your profile"
+          message={
+            profileState.error ||
+            'Wellumi could not reach the server. Check that the API is running and EXPO_PUBLIC_API_BASE_URL points to your machine.'
+          }
+          onRetry={() => profileState.refresh(auth.userId)}
+          styles={styles}
+        />
+      </SafeAreaView>
+    );
+  }
+
   if (showSignIn) {
     return (
       <SafeAreaView style={styles.app}>
@@ -467,8 +483,8 @@ export default function App() {
               data.clear();
               profileState.reset();
               const result = await verifyEmailOnly({ email, code });
-              await auth.refresh();
-              await profileState.refresh();
+              const nextAuth = await auth.refresh();
+              await profileState.refresh(nextAuth.userId);
               await data.hydrate();
               return result;
             } catch (error) {
@@ -486,8 +502,8 @@ export default function App() {
             try {
               auth.beginTransition();
               await executeGuestMerge({ migrationToken, guestUserId });
-              await auth.refresh();
-              await profileState.refresh();
+              const nextAuth = await auth.refresh();
+              await profileState.refresh(nextAuth.userId);
               await data.hydrate();
               setShowSignIn(false);
             } catch (error) {
@@ -538,11 +554,11 @@ export default function App() {
                 migrationToken: pendingMerge.migrationToken,
                 guestUserId: pendingMerge.guestUserId,
               });
-              await auth.refresh();
+              const nextAuth = await auth.refresh();
               if (pendingMerge.preferences) {
                 await profileState.finishOnboarding(pendingMerge.preferences);
               } else {
-                await profileState.refresh();
+                await profileState.refresh(nextAuth.userId);
               }
               await data.hydrate();
               setPendingMerge(null);
@@ -562,7 +578,7 @@ export default function App() {
               if (pendingMerge.preferences) {
                 await profileState.finishOnboarding(pendingMerge.preferences);
               } else {
-                await profileState.refresh();
+                await profileState.refresh(auth.userId);
               }
               await data.hydrate();
               setPendingMerge(null);
@@ -619,8 +635,8 @@ export default function App() {
               profileState.reset();
 
               const verified = await verifyEmailOnly({ email, code });
-              await auth.refresh();
-              await profileState.refresh();
+              const nextAuth = await auth.refresh();
+              await profileState.refresh(nextAuth.userId);
               await data.hydrate();
               auth.endTransition();
 

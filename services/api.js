@@ -1,4 +1,4 @@
-import { API_BASE_URL, LABEL_ANALYSIS_TIMEOUT_MS } from './config';
+import { API_BASE_URL, LABEL_ANALYSIS_TIMEOUT_MS, PROFILE_BOOTSTRAP_TIMEOUT_MS } from './config';
 import { getAccessToken, initializeAuth } from './auth';
 import { mapAnalysisToResultSummary } from './mappers';
 
@@ -11,7 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-async function apiRequest(path, { method = 'GET', body, auth = true } = {}) {
+async function apiRequest(path, { method = 'GET', body, auth = true, timeoutMs = LABEL_ANALYSIS_TIMEOUT_MS } = {}) {
   if (auth) {
     await initializeAuth();
   }
@@ -28,7 +28,7 @@ async function apiRequest(path, { method = 'GET', body, auth = true } = {}) {
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), LABEL_ANALYSIS_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   let response;
   try {
@@ -40,7 +40,7 @@ async function apiRequest(path, { method = 'GET', body, auth = true } = {}) {
     });
   } catch (error) {
     if (error.name === 'AbortError') {
-      throw new ApiError(`The request took too long after ${LABEL_ANALYSIS_TIMEOUT_MS / 1000} seconds.`, {
+      throw new ApiError(`The request took too long after ${timeoutMs / 1000} seconds.`, {
         code: 'TIMEOUT',
       });
     }
@@ -130,11 +130,11 @@ export async function dismissFeedItem(feedMatchId) {
 }
 
 export async function fetchMe() {
-  return apiRequest('/me');
+  return apiRequest('/me', { timeoutMs: PROFILE_BOOTSTRAP_TIMEOUT_MS });
 }
 
 export async function fetchPreferences() {
-  const payload = await apiRequest('/preferences');
+  const payload = await apiRequest('/preferences', { timeoutMs: PROFILE_BOOTSTRAP_TIMEOUT_MS });
   return payload.preferences;
 }
 
@@ -165,7 +165,7 @@ export async function completeOnboarding(preferences) {
 }
 
 export async function fetchInterestProfile() {
-  const payload = await apiRequest('/interest-profile');
+  const payload = await apiRequest('/interest-profile', { timeoutMs: PROFILE_BOOTSTRAP_TIMEOUT_MS });
   return payload.interestProfile;
 }
 

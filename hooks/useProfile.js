@@ -8,6 +8,7 @@ import {
   startOnboarding,
   updatePreferences,
 } from '../services/api';
+import { PROFILE_BOOTSTRAP_TIMEOUT_MS } from '../services/config';
 import {
   cacheKey,
   clearLegacyGlobalCache,
@@ -24,6 +25,12 @@ export const PROFILE_STATES = {
   ERROR: 'error',
 };
 
+function logDev(...args) {
+  if (__DEV__) {
+    console.log('[wellumi-profile]', ...args);
+  }
+}
+
 export function useProfile({ enabled = true, userId = null } = {}) {
   const [profile, setProfile] = useState(null);
   const [preferences, setPreferences] = useState(null);
@@ -31,17 +38,27 @@ export function useProfile({ enabled = true, userId = null } = {}) {
   const [profileState, setProfileState] = useState(PROFILE_STATES.UNINITIALIZED);
   const [error, setError] = useState('');
   const activeOwnerRef = useRef(userId);
+  const refreshGenerationRef = useRef(0);
 
   useEffect(() => {
     activeOwnerRef.current = userId;
   }, [userId]);
 
+  const isLatestRefresh = useCallback((generation, ownerId) => {
+    return (
+      generation === refreshGenerationRef.current &&
+      activeOwnerRef.current === ownerId
+    );
+  }, []);
+
   const reset = useCallback(() => {
+    refreshGenerationRef.current += 1;
     setProfile(null);
     setPreferences(null);
     setInterestProfile(null);
     setProfileState(PROFILE_STATES.UNINITIALIZED);
     setError('');
+    logDev('reset', { userId: activeOwnerRef.current });
   }, []);
 
   const loadCachedForUser = useCallback(async (ownerId) => {
@@ -65,46 +82,85 @@ export function useProfile({ enabled = true, userId = null } = {}) {
     if (cachedPreferences) setPreferences(cachedPreferences);
     if (cachedInterest) setInterestProfile(cachedInterest);
     setProfileState(PROFILE_STATES.OFFLINE_CACHED);
+    logDev('loaded offline cache', { ownerId });
     return true;
   }, []);
 
-  const refresh = useCallback(async (explicitOwnerId) => {
-    const ownerId = explicitOwnerId || activeOwnerRef.current;
-    if (!enabled || !ownerId) return;
-    setProfileState(PROFILE_STATES.LOADING);
-    setError('');
-    try {
-      await clearLegacyGlobalCache();
-      const me = await fetchMe();
-      if (activeOwnerRef.current !== ownerId) return;
+  const refresh = useCallback(
+    async (explicitOwnerId) => {
+      const ownerId = explicitOwnerId || activeOwnerRef.current;
+      if (!enabled || !ownerId) {
+        logDev('refresh skipped', { enabled, ownerId });
+        return;
+      }
 
-      const prefs = await fetchPreferences();
-      if (activeOwnerRef.current !== ownerId) return;
+      const generation = ++refreshGenerationRef.current;
+      setProfileState(PROFILE_STATES.LOADING);
+      setError('');
+      logDev('refresh start', { ownerId, generation, timeoutMs: PROFILE_BOOTSTRAP_TIMEOUT_MS });
 
-      setProfile(me.profile);
-      setPreferences(prefs);
-      await writeUserCache(ownerId, 'profile', me.profile);
-      await writeUserCache(ownerId, 'preferences', prefs);
-      if (me.profile?.onboarding_status === 'completed') {
-        const interest = await fetchInterestProfile();
-        if (activeOwnerRef.current !== ownerId) return;
-        setInterestProfile(interest);
-        await writeUserCache(ownerId, 'interest_profile', interest);
-      } else if (me.profile?.onboarding_step) {
-        await writeUserCache(ownerId, 'onboarding_step', me.profile.onboarding_step);
+      const bootstrapTimer = setTimeout(() => {
+        if (!isLatestRefresh(generation, ownerId)) return;
+        logDev('refresh timed out waiting for API', { ownerId, generation });
+      }, PROFILE_BOOTSTRAP_TIMEOUT_MS + 500);
+
+      try {
+        await clearLegacyGlobalCache();
+        const me = await fetchMe();
+        if (!isLatestRefresh(generation, ownerId)) {
+          logDev('refresh aborted after /me (stale owner)', { ownerId, generation });
+          return;
+        }
+
+        const prefs = await fetchPreferences();
+        if (!isLatestRefresh(generation, ownerId)) {
+          logDev('refresh aborted after /preferences (stale owner)', { ownerId, generation });
+          return;
+        }
+
+        setProfile(me.profile);
+        setPreferences(prefs);
+        await writeUserCache(ownerId, 'profile', me.profile);
+        await writeUserCache(ownerId, 'preferences', prefs);
+
+        if (me.profile?.onboarding_status === 'completed') {
+          const interest = await fetchInterestProfile();
+          if (!isLatestRefresh(generation, ownerId)) {
+            logDev('refresh aborted after /interest-profile (stale owner)', { ownerId, generation });
+            return;
+          }
+          setInterestProfile(interest);
+          await writeUserCache(ownerId, 'interest_profile', interest);
+        } else if (me.profile?.onboarding_step) {
+          await writeUserCache(ownerId, 'onboarding_step', me.profile.onboarding_step);
+        }
+
+        if (isLatestRefresh(generation, ownerId)) {
+          setProfileState(PROFILE_STATES.LOADED);
+          logDev('refresh complete', { ownerId, generation });
+        }
+      } catch (profileError) {
+        if (!isLatestRefresh(generation, ownerId)) {
+          logDev('refresh error ignored (stale owner)', { ownerId, generation, message: profileError?.message });
+          return;
+        }
+
+        const message = profileError?.message || 'Could not load profile.';
+        setError(message);
+        logDev('refresh failed', { ownerId, generation, message });
+
+        const usedCache = await loadCachedForUser(ownerId);
+        if (isLatestRefresh(generation, ownerId)) {
+          if (!usedCache) {
+            setProfileState(PROFILE_STATES.ERROR);
+          }
+        }
+      } finally {
+        clearTimeout(bootstrapTimer);
       }
-      if (activeOwnerRef.current === ownerId) {
-        setProfileState(PROFILE_STATES.LOADED);
-      }
-    } catch (profileError) {
-      if (activeOwnerRef.current !== ownerId) return;
-      setError(profileError?.message || 'Could not load profile.');
-      const usedCache = await loadCachedForUser(ownerId);
-      if (!usedCache && activeOwnerRef.current === ownerId) {
-        setProfileState(PROFILE_STATES.ERROR);
-      }
-    }
-  }, [enabled, loadCachedForUser]);
+    },
+    [enabled, isLatestRefresh, loadCachedForUser]
+  );
 
   const beginOnboarding = useCallback(async () => {
     const started = await startOnboarding();

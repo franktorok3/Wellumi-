@@ -37,10 +37,12 @@ const useProfileHook = fs.readFileSync(
   'utf8'
 );
 assert.match(useProfileHook, /PROFILE_STATES/, 'profile hook must expose explicit profile states');
+assert.match(useProfileHook, /refreshGenerationRef/, 'profile refresh must guard stale in-flight requests');
 assert.match(useProfileHook, /shouldShowOnboarding/, 'onboarding routing must wait for resolved profile');
 
 const appSource = fs.readFileSync(path.join(__dirname, '../../App.js'), 'utf8');
 assert.match(appSource, /Saving your Wellumi/, 'auth transition must show neutral loading state');
+assert.match(appSource, /Could not load your profile/, 'profile bootstrap errors must surface with retry');
 assert.doesNotMatch(appSource, /profileState\.profile && profileState\.needsOnboarding/, 'avoid stale-profile onboarding flash');
 
 console.log('verify-client-flows: all static checks passed');
