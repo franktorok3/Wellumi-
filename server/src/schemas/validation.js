@@ -1,4 +1,10 @@
 const { z } = require('zod');
+const {
+  MAX_BASE64_LENGTH,
+  MAX_IMAGE_BYTES,
+  normalizeMimeType,
+  validateImagePayload,
+} = require('../utils/imageValidation');
 
 const barcodeSchema = z
   .string()
@@ -8,16 +14,88 @@ const barcodeSchema = z
 
 const analyzeLabelRequestSchema = z
   .object({
-    imageBase64: z.string().min(1).optional(),
+    imageBase64: z
+      .string()
+      .min(1)
+      .max(MAX_BASE64_LENGTH, `imageBase64 must be at most ${MAX_BASE64_LENGTH} characters`)
+      .optional(),
     mimeType: z.string().min(3).default('image/jpeg'),
     barcode: barcodeSchema,
   })
   .refine((value) => Boolean(value.imageBase64 || value.barcode), {
     message: 'imageBase64 or barcode is required',
+  })
+  .superRefine((value, ctx) => {
+    if (!value.imageBase64) {
+      return;
+    }
+
+    try {
+      validateImagePayload({
+        imageBase64: value.imageBase64,
+        mimeType: normalizeMimeType(value.mimeType),
+      });
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error.message,
+      });
+    }
   });
 
 const saveProductRequestSchema = z.object({
   productId: z.string().uuid(),
+  analysisId: z.string().uuid().optional(),
+  scanId: z.string().uuid().optional(),
+});
+
+const preferencesSchema = z.object({
+  selected_interests: z.array(z.string()).default([]),
+  selected_use_cases: z.array(z.string()).default([]),
+  content_balance: z.record(z.string()).default({}),
+  limited_topics: z.array(z.string()).default([]),
+  preferred_feed_mix: z.record(z.unknown()).default({}),
+  notifications: z.record(z.unknown()).default({}),
+});
+
+const onboardingStepSchema = z.object({
+  step: z.string().min(1),
+  draft: preferencesSchema.partial().optional(),
+});
+
+const patchMeSchema = z.object({
+  display_name: z.string().min(1).max(80).optional(),
+  last_seen_at: z.string().optional(),
+});
+
+const storyFeedbackSchema = z.object({
+  feedback_type: z.enum([
+    'opened',
+    'source_opened',
+    'saved',
+    'dismissed',
+    'more_like_this',
+    'less_like_this',
+    'not_relevant',
+  ]),
+  metadata: z.record(z.unknown()).default({}),
+});
+
+const accountUpgradeSchema = z.object({
+  account_type: z.enum(['email', 'apple']),
+});
+
+const completeMigrationSchema = z.object({
+  migration_token: z.string().min(32),
+});
+
+const migrationPreviewSchema = z.object({
+  migration_token: z.string().min(32),
+});
+
+const deleteAccountSchema = z.object({
+  confirm: z.literal(true),
+  confirmation_phrase: z.literal('DELETE'),
 });
 
 const openAiLabelSummarySchema = z.object({
@@ -78,8 +156,18 @@ function validateBody(schema, body) {
 module.exports = {
   analyzeLabelRequestSchema,
   saveProductRequestSchema,
+  preferencesSchema,
+  onboardingStepSchema,
+  patchMeSchema,
+  storyFeedbackSchema,
+  accountUpgradeSchema,
+  completeMigrationSchema,
+  migrationPreviewSchema,
+  deleteAccountSchema,
   openAiLabelSummarySchema,
   openFoodFactsResponseSchema,
   usdaSearchResponseSchema,
   validateBody,
+  MAX_IMAGE_BYTES,
+  MAX_BASE64_LENGTH,
 };

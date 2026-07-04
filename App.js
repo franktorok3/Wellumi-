@@ -1,9 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Image,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -11,37 +9,30 @@ import {
   TextInput,
   Pressable,
   View,
-  useWindowDimensions,
 } from 'react-native';
-import { analyzeLabelImage, fetchRecentScans, fetchSavedProducts, saveProduct } from './services/api';
-import { ensureAnonymousSession } from './services/auth';
+import { ErrorState, LoadingState } from './components/StateViews';
+import { useAuth } from './hooks/useAuth';
+import { useProfile, PROFILE_STATES } from './hooks/useProfile';
+import { useWellumiData } from './hooks/useWellumiData';
+import FeedScreen, { FeedDetailScreen, openFeedSource } from './screens/FeedScreen';
+import LibraryScreen from './screens/LibraryScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
+import SignInScreen from './screens/SignInScreen';
+import GuestMergePromptScreen from './screens/GuestMergePromptScreen';
+import ResultScreen from './screens/ResultScreen';
+import ScanScreen from './screens/ScanScreen';
+import { markFeedRead, saveProduct, submitStoryFeedback } from './services/api';
 import {
-  getResultKey,
-  mapAnalysisToResultSummary,
-  mapSavedProductToLibraryItem,
-  mapScanToRecentItem,
-  mockResultSummary,
-} from './services/mappers';
-
-const colors = {
-  cream: '#FBF8F1',
-  card: '#FFFDF8',
-  cardSoft: '#F7F4EC',
-  green: '#3F794D',
-  greenDark: '#193D2B',
-  greenSoft: '#EAF0E6',
-  greenMuted: '#B8C8AD',
-  ink: '#16291F',
-  muted: '#6E716D',
-  mutedLight: '#8A8F8C',
-  line: '#E9E4DA',
-  shadow: '#3A3328',
-  white: '#FFFFFF',
-  heroText: '#E7EFE6',
-  surfaceWarm: '#F1EBDD',
-  surfaceMuted: '#EEF0E8',
-  tabInactive: '#5B6060',
-};
+  executeGuestMerge,
+  loadMigrationPreview,
+  sendEmailUpgradeCode,
+  skipGuestMerge,
+  verifyEmailOnly,
+} from './services/accountTransition';
+import { signOutAndReset } from './services/auth';
+import { clearUserCache } from './services/userCache';
+import { mapSavedProductToLibraryItem } from './services/mappers';
+import { colors } from './theme/tokens';
 
 const spacing = {
   xs: 4,
@@ -78,235 +69,11 @@ const typography = {
 const layout = {
   screenPaddingX: spacing.xl,
   screenPaddingTop: spacing.md,
-  screenPaddingBottom: 132,
+  screenPaddingBottom: 148,
   sectionGap: spacing.xl,
   cardGap: spacing.md - 1,
   contentMaxWidth: 520,
 };
-
-const scanItems = [
-  { id: 'd3', title: 'Vitamin D3\n2000 IU', time: '2d ago', color: '#F7C633', bottle: '#181F1A' },
-  { id: 'ibu', title: 'Ibuprofen\n200mg', time: '4d ago', color: '#2D77B8', bottle: '#F8F7F2' },
-  { id: 'omega', title: 'Omega-3\nFish Oil', time: '6d ago', color: '#7A3B25', bottle: '#4B2018' },
-];
-
-const defaultFeedArt = [
-  {
-    id: 'magnesium',
-    title: 'Magnesium Glycinate',
-    body: 'What the research says',
-    palette: ['#D9CAB4', '#F4ECDF', '#BFA98B'],
-  },
-  {
-    id: 'berberine',
-    title: 'Berberine',
-    body: 'Uses and key benefits',
-    palette: ['#1F4F2E', '#7B9A6F', '#DDE8D5'],
-  },
-  {
-    id: 'sleep',
-    title: 'Sleep support claims',
-    body: 'Ingredients, evidence & more',
-    palette: ['#E9DFCF', '#CDBB9E', '#F8F2E8'],
-  },
-];
-
-const mockFeedLibrary = [
-  {
-    id: 'zinc-immune-language',
-    updateType: 'Label trend',
-    title: 'Zinc products and immune wellness language',
-    summary: 'A neutral look at common wording used on zinc supplement labels.',
-    tag: 'zinc',
-    relatedTags: ['zinc', 'supplements', 'label literacy'],
-    sourceLabel: 'Source-backed context',
-    cta: 'Read update',
-    date: 'Today',
-    filterType: 'Trends',
-    palette: ['#C9B58A', '#F4EBD7', '#7E8B62'],
-  },
-  {
-    id: 'supplement-label-wording',
-    updateType: 'Source update',
-    title: 'Common wording on supplement facts panels',
-    summary: 'A source-literacy reminder to separate product identity, ingredient lists, and marketing language.',
-    tag: 'label literacy',
-    relatedTags: ['supplements', 'label literacy'],
-    sourceLabel: 'Source-backed context',
-    cta: 'View context',
-    date: 'Updated recently',
-    filterType: 'Updates',
-    palette: ['#D9CAB4', '#F4ECDF', '#BFA98B'],
-  },
-  {
-    id: 'magnesium-sleep-content',
-    updateType: 'Research mention',
-    title: 'Magnesium forms are showing up in sleep content',
-    summary: 'Recent wellness content often compares magnesium forms. Wellumi keeps the focus on label literacy and questions to ask.',
-    tag: 'magnesium',
-    relatedTags: ['magnesium', 'sleep', 'supplements'],
-    sourceLabel: 'Source-backed context',
-    cta: 'Read update',
-    date: 'This week',
-    filterType: 'Updates',
-    palette: ['#D7C4A8', '#F6EDE0', '#A88D70'],
-  },
-  {
-    id: 'sleep-label-language',
-    updateType: 'Related topic',
-    title: 'Sleep-support wording on wellness labels',
-    summary: 'A label-literacy view of common wording around sleep-related products without evaluating product claims.',
-    tag: 'sleep',
-    relatedTags: ['sleep', 'supplements', 'label literacy'],
-    sourceLabel: 'Source-backed context',
-    cta: 'View context',
-    date: 'Updated recently',
-    filterType: 'Updates',
-    palette: ['#E9DFCF', '#CDBB9E', '#F8F2E8'],
-  },
-  {
-    id: 'otc-combining-products',
-    updateType: 'FDA/consumer update',
-    title: 'Reading OTC labels before combining products',
-    summary: 'A reminder to review active ingredients and ask a pharmacist when comparing OTC products.',
-    tag: 'OTC',
-    relatedTags: ['otc', 'pain relief', 'medication questions'],
-    sourceLabel: 'Source-backed context',
-    cta: 'Read update',
-    date: 'Today',
-    filterType: 'Updates',
-    palette: ['#B8C7D5', '#EEF3F4', '#6F8BA5'],
-  },
-  {
-    id: 'ibuprofen-active-ingredient',
-    updateType: 'Question to ask',
-    title: 'Active ingredient questions for ibuprofen labels',
-    summary: 'A neutral prompt to compare active ingredient names and bring medication questions to a qualified professional.',
-    tag: 'ibuprofen',
-    relatedTags: ['ibuprofen', 'otc', 'pain relief', 'medication questions'],
-    sourceLabel: 'Source-backed context',
-    cta: 'View context',
-    date: 'This week',
-    filterType: 'Scans',
-    palette: ['#C3D3E3', '#F2F6F8', '#7F9AB2'],
-  },
-  {
-    id: 'probiotic-label-terms',
-    updateType: 'Label trend',
-    title: 'Probiotic labels and gut wellness terms',
-    summary: 'A plain-language look at strain names, product categories, and common gut wellness marketing terms.',
-    tag: 'gut wellness',
-    relatedTags: ['probiotic', 'gut wellness', 'supplements', 'label literacy'],
-    sourceLabel: 'Source-backed context',
-    cta: 'Read update',
-    date: 'Updated recently',
-    filterType: 'Trends',
-    palette: ['#9EBB8E', '#E8F0E2', '#4E6F43'],
-  },
-  {
-    id: 'saved-follow-up',
-    updateType: 'Related topic',
-    title: 'Turning saved summaries into better questions',
-    summary: 'A compact guide for revisiting saved label summaries and preparing questions for a qualified professional.',
-    tag: 'saved',
-    relatedTags: ['saved', 'label literacy', 'medication questions'],
-    sourceLabel: 'Source-backed context',
-    cta: 'Save topic',
-    date: 'Updated recently',
-    filterType: 'Saved Topics',
-    palette: ['#D5C2A2', '#F5EEE2', '#8A7659'],
-  },
-];
-
-function extractAwarenessTags(text) {
-  const normalized = String(text || '').toLowerCase();
-  const tags = [];
-
-  if (normalized.includes('zinc')) tags.push('zinc', 'supplements', 'label literacy');
-  if (normalized.includes('magnesium')) tags.push('magnesium', 'sleep', 'supplements');
-  if (normalized.includes('ibuprofen')) tags.push('ibuprofen', 'otc', 'pain relief', 'medication questions');
-  if (normalized.includes('otc')) tags.push('otc', 'medication questions');
-  if (normalized.includes('probiotic')) tags.push('probiotic', 'gut wellness', 'supplements');
-  if (normalized.includes('sleep')) tags.push('sleep', 'supplements');
-  if (normalized.includes('claim') || normalized.includes('label')) tags.push('label literacy');
-
-  return [...new Set(tags)];
-}
-
-function buildFeedCards(behavior) {
-  const savedItems = behavior.savedItems || [];
-  const savedTitles = savedItems.map((item) => item.title);
-  const activeTags = [
-    ...behavior.scans.flatMap((result) =>
-      extractAwarenessTags(`${result.title} ${result.detectedLabelText || ''}`)
-    ),
-    ...behavior.searches.flatMap(extractAwarenessTags),
-    ...savedItems.flatMap((item) =>
-      extractAwarenessTags(`${item.title} ${item.result?.detectedLabelText || ''}`)
-    ),
-    ...(savedItems.length ? ['saved'] : []),
-  ];
-  const tagSet = new Set(activeTags);
-
-  const personalized = mockFeedLibrary
-    .map((card) => {
-      const matchedTags = card.relatedTags.filter((tag) => tagSet.has(tag));
-      const savedMatch = savedTitles.find((title) =>
-        card.relatedTags.some((tag) => extractAwarenessTags(title).includes(tag))
-      );
-
-      let reasonLabel = 'Starter awareness update';
-      if (savedMatch) reasonLabel = `Because you saved ${savedMatch}`;
-      else if (matchedTags.includes('zinc')) reasonLabel = 'Because you scanned zinc';
-      else if (matchedTags.includes('magnesium')) reasonLabel = 'Because you scanned magnesium';
-      else if (matchedTags.includes('otc')) reasonLabel = 'Based on OTC scan activity';
-      else if (behavior.searches.length && matchedTags.length) reasonLabel = 'Based on recent searches';
-      else if (matchedTags.length) reasonLabel = `Because of ${matchedTags[0]}`;
-
-      return {
-        ...card,
-        reasonLabel,
-        score: matchedTags.length + (savedMatch ? 3 : 0),
-      };
-    })
-    .filter((card) => card.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  if (personalized.length >= 3) return personalized;
-
-  const fallback = mockFeedLibrary
-    .filter((card) => !personalized.some((item) => item.id === card.id))
-    .slice(0, 3 - personalized.length)
-    .map((card) => ({
-      ...card,
-      reasonLabel: 'Starter awareness update',
-      score: 0,
-    }));
-
-  return [...personalized, ...fallback];
-}
-
-function getResultDescription(result) {
-  return result?.sections?.[0]?.body || 'Saved label context for later review.';
-}
-
-function createLibraryItem(result, type = 'Scan') {
-  return {
-    id: result.productId || getResultKey(result),
-    productId: result.productId || null,
-    title: result.title,
-    type,
-    description: getResultDescription(result),
-    savedAtLabel: 'Saved today',
-    result,
-  };
-}
-
-const libraryItems = [
-  { id: 'magnesium', title: 'Magnesium Glycinate', body: 'Evidence summary' },
-  { id: 'berberine', title: 'Berberine', body: 'Saved source context' },
-  { id: 'sleep', title: 'Sleep support claims', body: 'Claim summary' },
-];
 
 const tabs = [
   { key: 'home', label: 'Home', icon: 'home' },
@@ -315,8 +82,6 @@ const tabs = [
   { key: 'library', label: 'Library', icon: 'bookmark' },
   { key: 'profile', label: 'Profile', icon: 'profile' },
 ];
-
-const feedFilters = ['All', 'Updates', 'Trends', 'Saved Topics', 'Scans'];
 
 function SplashScreen() {
   return (
@@ -335,119 +100,142 @@ function SplashScreen() {
 }
 
 export default function App() {
+  const auth = useAuth();
+  const profileState = useProfile({ enabled: auth.status === 'ready', userId: auth.userId });
+  const data = useWellumiData();
   const [activeTab, setActiveTab] = useState('home');
-  const [query, setQuery] = useState('');
   const [showResult, setShowResult] = useState(false);
+  const [showFeedDetail, setShowFeedDetail] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
-  const [currentResult, setCurrentResult] = useState(mockResultSummary);
-  const [currentResultType, setCurrentResultType] = useState('Scan');
-  const [activeFeedFilter, setActiveFeedFilter] = useState('All');
-  const [behavior, setBehavior] = useState({
-    scans: [],
-    searches: [],
-    savedItems: [],
-  });
-
-  const refreshPersistedData = useCallback(async () => {
-    try {
-      await ensureAnonymousSession();
-      const [scans, savedProducts] = await Promise.all([
-        fetchRecentScans(),
-        fetchSavedProducts(),
-      ]);
-
-      setBehavior((current) => ({
-        ...current,
-        scans: scans.map((scan, index) => mapScanToRecentItem(scan, index)),
-        savedItems: savedProducts.map(mapSavedProductToLibraryItem),
-      }));
-    } catch (error) {
-      console.log('[wellumi] Could not hydrate persisted data', error?.message || error);
-    }
-  }, []);
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [signInSendingCode, setSignInSendingCode] = useState(false);
+  const [signInVerifying, setSignInVerifying] = useState(false);
+  const [signInMerging, setSignInMerging] = useState(false);
+  const [pendingMerge, setPendingMerge] = useState(null);
+  const [migrationHandshake, setMigrationHandshake] = useState(null);
+  const [currentResult, setCurrentResult] = useState(null);
+  const [currentFeedItem, setCurrentFeedItem] = useState(null);
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
+  const [onboardingError, setOnboardingError] = useState('');
 
   useEffect(() => {
-    refreshPersistedData();
-  }, [refreshPersistedData]);
+    if (auth.status === 'ready' && auth.userId && !auth.authTransitioning) {
+      data.hydrate();
+    }
+  }, [auth.status, auth.userId, auth.authTransitioning]);
 
-  const personalizedFeed = useMemo(() => buildFeedCards(behavior), [behavior]);
-  const recentScanItems = useMemo(() => behavior.scans, [behavior.scans]);
-  const currentResultSaved = behavior.savedItems.some(
+  useEffect(() => {
+    if (
+      auth.status === 'ready' &&
+      auth.userId &&
+      profileState.isProfileResolved &&
+      profileState.profile?.onboarding_status === 'not_started'
+    ) {
+      profileState.beginOnboarding().catch((error) => {
+        if (__DEV__) console.log('[wellumi-onboarding] start failed', error?.message);
+      });
+    }
+  }, [auth.status, auth.userId, profileState.isProfileResolved, profileState.profile?.onboarding_status]);
+
+  const currentResultSaved = data.savedItems.some(
     (item) =>
-      (currentResult.productId && item.productId === currentResult.productId) ||
-      item.id === getResultKey(currentResult)
+      (currentResult?.analysisId && item.analysisId === currentResult.analysisId) ||
+      (currentResult?.productId && item.productId === currentResult.productId)
   );
 
-  function rememberResult(kind, result = mockResultSummary) {
-    if (kind !== 'scan') return;
-
-    setBehavior((current) => ({
-      ...current,
-      scans: [
-        {
-          id: result.scanId || `${getResultKey(result)}-${Date.now()}`,
-          title: result.title,
-          subtitle: 'Scanned today',
-          color: '#7E8B62',
-          bottle: '#243329',
-          result,
-        },
-        ...current.scans,
-      ].slice(0, 6),
-    }));
-
-    if (result.persisted) {
-      refreshPersistedData();
-    }
-  }
-
-  function rememberSearch(searchText) {
-    const cleaned = String(searchText || '').trim();
-    if (!cleaned) return;
-
-    setBehavior((current) => ({
-      ...current,
-      searches: [cleaned, ...current.searches].slice(0, 8),
-    }));
+  function openResult(result) {
+    if (!result) return;
+    setCurrentResult(result);
+    setShowResult(true);
+    setShowFeedDetail(false);
   }
 
   async function saveCurrentResult() {
-    if (!currentResult.productId) {
-      setBehavior((current) => ({
-        ...current,
-        savedItems: current.savedItems.some((item) => item.id === getResultKey(currentResult))
-          ? current.savedItems
-          : [createLibraryItem(currentResult, currentResultType), ...current.savedItems].slice(0, 12),
-      }));
+    if (!currentResult?.productId) {
+      Alert.alert('Cannot save yet', 'This result is missing a saved product reference.');
       return;
     }
 
     try {
-      const savedProduct = await saveProduct(currentResult.productId);
+      const savedProduct = await saveProduct({
+        productId: currentResult.productId,
+        analysisId: currentResult.analysisId,
+        scanId: currentResult.scanId,
+      });
       const libraryItem = mapSavedProductToLibraryItem(savedProduct);
-      setBehavior((current) => ({
-        ...current,
-        savedItems: [
-          libraryItem,
-          ...current.savedItems.filter((item) => item.productId !== libraryItem.productId),
-        ].slice(0, 12),
-      }));
+      data.setSavedItems((current) => [
+        libraryItem,
+        ...current.filter((item) => item.analysisId !== libraryItem.analysisId),
+      ]);
     } catch (error) {
       Alert.alert('Could not save product', error?.message || 'Please try again.');
     }
   }
 
-  function openResult(result = mockResultSummary, source = 'manual') {
-    rememberResult(source, result);
-    setCurrentResultType(source === 'scan' ? 'Scan' : source === 'search' ? 'Claim' : 'Topic');
-    setCurrentResult(result);
-    setShowResult(true);
+  async function handleFeedOpen(card) {
+    setCurrentFeedItem(card);
+    setShowFeedDetail(true);
+    setShowResult(false);
+    try {
+      await markFeedRead(card.id);
+      await submitStoryFeedback(card.storyId, 'opened', {
+        storyCategory: card.storyCategory,
+        topic: card.lifestyleCategory,
+        topics: card.topics,
+      });
+    } catch (error) {
+      if (__DEV__) console.log('[wellumi-feed] mark read failed', error?.message);
+    }
   }
 
   const screen = useMemo(() => {
-    if (showResult) {
+    if (showFeedDetail && currentFeedItem) {
+      return (
+        <FeedDetailScreen
+          styles={styles}
+          item={currentFeedItem}
+          onBack={() => setShowFeedDetail(false)}
+          onOpenSource={(url) =>
+            openFeedSource(url, {
+              onOpened: async () => {
+                try {
+                  await submitStoryFeedback(currentFeedItem.storyId, 'source_opened', {
+                    storyCategory: currentFeedItem.storyCategory,
+                    topic: currentFeedItem.lifestyleCategory,
+                    topics: currentFeedItem.topics,
+                    source_url: url,
+                  });
+                } catch (error) {
+                  if (__DEV__) console.log('[wellumi-feed] source feedback failed', error?.message);
+                }
+              },
+            })
+          }
+          onFeedback={async (feedbackType) => {
+            try {
+              await submitStoryFeedback(currentFeedItem.storyId, feedbackType, {
+                storyCategory: currentFeedItem.storyCategory,
+                topic: currentFeedItem.lifestyleCategory,
+              });
+              if (feedbackType === 'not_relevant' || feedbackType === 'less_like_this') {
+                await data.reloadFeed();
+              }
+            } catch (error) {
+              Alert.alert('Could not save feedback', error?.message || 'Please try again.');
+            }
+          }}
+          GuardrailNote={GuardrailNote}
+        />
+      );
+    }
+
+    if (showResult && currentResult) {
       return (
         <ResultScreen
+          styles={styles}
+          InfoCard={InfoCard}
+          PrimaryButton={PrimaryButton}
+          GuardrailNote={GuardrailNote}
           result={currentResult}
           isSaved={currentResultSaved}
           onBack={() => setShowResult(false)}
@@ -457,52 +245,143 @@ export default function App() {
     }
 
     if (activeTab === 'scan') {
-      return <ScanScreen onBack={() => setActiveTab('home')} onResult={(result) => openResult(result, 'scan')} />;
-    }
-    if (activeTab === 'search') {
       return (
-        <SearchScreen
-          query={query}
-          setQuery={setQuery}
-          onSearch={rememberSearch}
-          onResult={() => openResult(mockResultSummary, 'search')}
+        <ScanScreen
+          styles={styles}
+          Icon={Icon}
+          PrimaryButton={PrimaryButton}
+          SecondaryButton={SecondaryButton}
+          onBack={() => setActiveTab('home')}
+          onResult={(result) => {
+            openResult(result);
+            data.hydrate();
+          }}
         />
       );
     }
-    if (activeTab === 'library') {
-      return <LibraryScreen items={behavior.savedItems} onOpen={(item) => openResult(item.result, 'library')} />;
+
+    if (activeTab === 'search') {
+      return <SearchScreen styles={styles} ScreenHeader={ScreenHeader} />;
     }
+
+    if (activeTab === 'library') {
+      return (
+        <LibraryScreen
+          styles={styles}
+          ScreenHeader={ScreenHeader}
+          Icon={Icon}
+          colors={colors}
+          items={data.savedItems}
+          loading={data.savedLoading}
+          error={data.savedError}
+          onRetry={data.hydrate}
+          onOpen={(item) => openResult(item.result)}
+        />
+      );
+    }
+
     if (activeTab === 'feed') {
       return (
         <FeedScreen
-          cards={personalizedFeed}
-          activeFilter={activeFeedFilter}
-          onFilter={setActiveFeedFilter}
-          onOpen={() => openResult(mockResultSummary, 'feed')}
+          styles={styles}
+          ScreenHeader={ScreenHeader}
+          FeedCard={FeedCard}
+          cards={data.feedCards}
+          loading={data.feedLoading}
+          error={data.feedError}
+          stale={data.feedStale}
+          onRetry={data.hydrate}
+          onRefresh={async () => {
+            try {
+              await data.reloadFeed();
+            } catch (error) {
+              Alert.alert('Feed refresh failed', error?.message || 'Please try again.');
+            }
+          }}
+          onOpen={handleFeedOpen}
+          GuardrailNote={GuardrailNote}
         />
       );
     }
-    if (activeTab === 'profile') return <ProfileScreen />;
+
+    if (activeTab === 'profile') {
+      return (
+        <ProfileScreen
+          styles={styles}
+          ScreenHeader={ScreenHeader}
+          InfoCard={InfoCard}
+          Icon={Icon}
+          scanCount={data.recentScans.length}
+          savedCount={data.savedItems.length}
+          feedCount={data.feedCards.length}
+          userId={auth.userId}
+          profile={profileState.profile}
+          preferences={profileState.preferences}
+          interestProfile={profileState.interestProfile}
+          onUpgradeEmail={() => setShowSignIn(true)}
+          onSignOut={async () => {
+            const oldUserId = auth.userId;
+            try {
+              data.clear();
+              profileState.reset();
+              if (oldUserId) {
+                await clearUserCache(oldUserId);
+              }
+              await signOutAndReset();
+              const nextAuth = await auth.refresh();
+              await profileState.refresh(nextAuth.userId);
+              await data.hydrate();
+            } catch (error) {
+              Alert.alert('Could not sign out', error?.message || 'Please try again.');
+            }
+          }}
+        />
+      );
+    }
 
     return (
       <HomeScreen
-        query={query}
-        setQuery={setQuery}
+        styles={styles}
         onTab={setActiveTab}
-        onSearch={rememberSearch}
-        onResult={(result) => openResult(result || mockResultSummary, 'search')}
-        feedCards={personalizedFeed}
-        recentScans={recentScanItems}
+        onResult={openResult}
+        feedCards={data.feedCards}
+        recentScans={data.recentScans}
+        scansLoading={data.scansLoading}
+        feedLoading={data.feedLoading}
+        scansError={data.scansError}
+        feedError={data.feedError}
+        authError={auth.error}
+        onRetryScans={data.hydrate}
+        onRetryFeed={data.hydrate}
+        onFeedOpen={handleFeedOpen}
+        ActionTile={ActionTile}
+        SectionTitle={SectionTitle}
+        ScanMiniCard={ScanMiniCard}
+        FeedCard={FeedCard}
+        BrandLeaf={BrandLeaf}
+        BellIcon={BellIcon}
+        Icon={Icon}
       />
     );
-  }, [activeFeedFilter, activeTab, behavior.savedItems, currentResult, currentResultSaved, currentResultType, personalizedFeed, query, recentScanItems, showResult]);
+  }, [
+    activeTab,
+    auth.error,
+    auth.userId,
+    currentFeedItem,
+    currentResult,
+    currentResultSaved,
+    data,
+    showFeedDetail,
+    showResult,
+  ]);
 
   function handleTabPress(tab) {
     setActiveTab(tab);
     setShowResult(false);
+    setShowFeedDetail(false);
   }
 
-  const isCameraFlow = activeTab === 'scan' && !showResult;
+  const isCameraFlow = activeTab === 'scan' && !showResult && !showFeedDetail;
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 1250);
@@ -511,6 +390,287 @@ export default function App() {
 
   if (showSplash) {
     return <SplashScreen />;
+  }
+
+  if (auth.status === 'loading') {
+    return (
+      <SafeAreaView style={styles.app}>
+        <LoadingState message="Starting your Wellumi session..." styles={styles} />
+      </SafeAreaView>
+    );
+  }
+
+  if (auth.authTransitioning) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <LoadingState message="Saving your Wellumi…" styles={styles} />
+      </SafeAreaView>
+    );
+  }
+
+  if (auth.status === 'error') {
+    return (
+      <SafeAreaView style={styles.app}>
+        <ErrorState
+          title="Could not start Wellumi"
+          message={auth.error}
+          onRetry={auth.retry}
+          styles={styles}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (
+    auth.status === 'ready' &&
+    auth.userId &&
+    (profileState.profileState === PROFILE_STATES.UNINITIALIZED ||
+      profileState.profileState === PROFILE_STATES.LOADING)
+  ) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <LoadingState message="Loading your profile..." styles={styles} />
+      </SafeAreaView>
+    );
+  }
+
+  if (auth.status === 'ready' && auth.userId && profileState.profileState === PROFILE_STATES.ERROR) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <ErrorState
+          title="Could not load your profile"
+          message={
+            profileState.error ||
+            'Wellumi could not reach the server. Check that the API is running and EXPO_PUBLIC_API_BASE_URL points to your machine.'
+          }
+          onRetry={() => profileState.refresh(auth.userId)}
+          styles={styles}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (showSignIn) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <StatusBar style="dark" />
+        <SignInScreen
+          styles={styles}
+          sendingCode={signInSendingCode}
+          verifying={signInVerifying}
+          merging={signInMerging}
+          error={onboardingError}
+          guestUserId={auth.userId}
+          onSendCode={async (email) => {
+            setSignInSendingCode(true);
+            setOnboardingError('');
+            try {
+              const handshake = await sendEmailUpgradeCode(email);
+              setMigrationHandshake(handshake);
+              return handshake;
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not send verification code.');
+              throw error;
+            } finally {
+              setSignInSendingCode(false);
+            }
+          }}
+          onVerifyCode={async ({ email, code }) => {
+            setSignInVerifying(true);
+            setOnboardingError('');
+            try {
+              auth.beginTransition();
+              data.clear();
+              profileState.reset();
+              const result = await verifyEmailOnly({ email, code });
+              const nextAuth = await auth.refresh();
+              await profileState.refresh(nextAuth.userId);
+              await data.hydrate();
+              return result;
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not verify email.');
+              throw error;
+            } finally {
+              auth.endTransition();
+              setSignInVerifying(false);
+            }
+          }}
+          onFetchPreview={async (migrationToken) => loadMigrationPreview(migrationToken)}
+          onMergeGuest={async ({ migrationToken, guestUserId }) => {
+            setSignInMerging(true);
+            setOnboardingError('');
+            try {
+              auth.beginTransition();
+              await executeGuestMerge({ migrationToken, guestUserId });
+              const nextAuth = await auth.refresh();
+              await profileState.refresh(nextAuth.userId);
+              await data.hydrate();
+              setShowSignIn(false);
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not merge guest activity.');
+              throw error;
+            } finally {
+              auth.endTransition();
+              setSignInMerging(false);
+            }
+          }}
+          onSkipMerge={async (guestUserId) => {
+            setOnboardingError('');
+            try {
+              auth.beginTransition();
+              await skipGuestMerge(guestUserId);
+              setShowSignIn(false);
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not continue without merging.');
+              throw error;
+            } finally {
+              auth.endTransition();
+            }
+          }}
+          onBack={() => {
+            setShowSignIn(false);
+            setOnboardingError('');
+          }}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (pendingMerge) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <StatusBar style="dark" />
+        <GuestMergePromptScreen
+          styles={styles}
+          preview={pendingMerge.preview}
+          loading={onboardingBusy}
+          error={onboardingError}
+          onMerge={async () => {
+            try {
+              setOnboardingBusy(true);
+              setOnboardingError('');
+              auth.beginTransition();
+              await executeGuestMerge({
+                migrationToken: pendingMerge.migrationToken,
+                guestUserId: pendingMerge.guestUserId,
+              });
+              const nextAuth = await auth.refresh();
+              if (pendingMerge.preferences) {
+                await profileState.finishOnboarding(pendingMerge.preferences);
+              } else {
+                await profileState.refresh(nextAuth.userId);
+              }
+              await data.hydrate();
+              setPendingMerge(null);
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not merge guest activity.');
+            } finally {
+              auth.endTransition();
+              setOnboardingBusy(false);
+            }
+          }}
+          onSkip={async () => {
+            try {
+              setOnboardingBusy(true);
+              setOnboardingError('');
+              auth.beginTransition();
+              await skipGuestMerge(pendingMerge.guestUserId);
+              if (pendingMerge.preferences) {
+                await profileState.finishOnboarding(pendingMerge.preferences);
+              } else {
+                await profileState.refresh(auth.userId);
+              }
+              await data.hydrate();
+              setPendingMerge(null);
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not continue without merging.');
+            } finally {
+              auth.endTransition();
+              setOnboardingBusy(false);
+            }
+          }}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  if (auth.status === 'ready' && profileState.shouldShowOnboarding) {
+    return (
+      <SafeAreaView style={styles.app}>
+        <StatusBar style="dark" />
+        <OnboardingScreen
+          styles={styles}
+          initialStep={profileState.onboardingStep || 'welcome'}
+          draft={profileState.preferences}
+          loading={onboardingBusy}
+          error={onboardingError}
+          onSaveStep={async (step, draft) => {
+            setOnboardingError('');
+            await profileState.persistStep(step, draft);
+          }}
+          onCompleteGuest={async (preferences) => {
+            try {
+              setOnboardingBusy(true);
+              setOnboardingError('');
+              await profileState.finishOnboarding(preferences);
+              await data.hydrate();
+            } catch (error) {
+              setOnboardingError(error?.message || 'Could not complete onboarding.');
+            } finally {
+              setOnboardingBusy(false);
+            }
+          }}
+          onCompleteEmail={async ({ email, code, stage, preferences }) => {
+            try {
+              setOnboardingBusy(true);
+              setOnboardingError('');
+              if (stage === 'send') {
+                const handshake = await sendEmailUpgradeCode(email);
+                setMigrationHandshake(handshake);
+                return;
+              }
+
+              auth.beginTransition();
+              data.clear();
+              profileState.reset();
+
+              const verified = await verifyEmailOnly({ email, code });
+              const nextAuth = await auth.refresh();
+              await profileState.refresh(nextAuth.userId);
+              await data.hydrate();
+              auth.endTransition();
+
+              if (verified.needsMerge) {
+                const preview = await loadMigrationPreview(migrationHandshake?.migrationToken);
+                setPendingMerge({
+                  guestUserId: verified.guestUserId,
+                  migrationToken: migrationHandshake?.migrationToken,
+                  preview,
+                  preferences,
+                });
+                return;
+              }
+
+              const alreadyOnboarded = profileState.profile?.onboarding_status === 'completed';
+              if (!alreadyOnboarded) {
+                await profileState.finishOnboarding(preferences);
+              }
+              await data.hydrate();
+            } catch (error) {
+              setOnboardingError(error?.message || 'Email verification failed.');
+              auth.endTransition();
+              throw error;
+            } finally {
+              setOnboardingBusy(false);
+            }
+          }}
+          onSignInExisting={() => {
+            setOnboardingError('');
+            setShowSignIn(true);
+          }}
+        />
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -522,18 +682,34 @@ export default function App() {
   );
 }
 
-function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, recentScans }) {
-  function submitSearch() {
-    onSearch(query);
-    onResult();
-  }
-
+function HomeScreen({
+  styles,
+  onTab,
+  onResult,
+  feedCards,
+  recentScans,
+  scansLoading,
+  feedLoading,
+  scansError,
+  feedError,
+  authError,
+  onRetryScans,
+  onRetryFeed,
+  onFeedOpen,
+  ActionTile,
+  SectionTitle,
+  ScanMiniCard,
+  FeedCard,
+  BrandLeaf,
+  BellIcon,
+  Icon,
+}) {
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.homeScroll}>
       <View style={styles.topRow}>
         <View style={styles.heroCopy}>
           <Text style={styles.heroTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-            Good morning
+            Scan with confidence
           </Text>
           <View style={styles.brandRow}>
             <Text style={styles.heroBrand}>Wellumi</Text>
@@ -543,37 +719,42 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, rec
         <View style={styles.headerActions}>
           <Pressable style={styles.bellButton} accessibilityLabel="Notifications">
             <BellIcon />
-            <View style={styles.notificationDot} />
           </Pressable>
-          <Pressable style={styles.profileBubble} accessibilityLabel="Profile">
+          <Pressable style={styles.profileBubble} accessibilityLabel="Profile" onPress={() => onTab('profile')}>
             <Icon name="profile" color={colors.greenDark} size={26} />
           </Pressable>
         </View>
       </View>
 
+      {!!authError && <Text style={styles.homeError}>{authError}</Text>}
+      {scansLoading ? <Text style={styles.homeMeta}>Loading your recent scans...</Text> : null}
+      {!!scansError && (
+        <Pressable onPress={onRetryScans}>
+          <Text style={styles.homeError}>{scansError} Tap to retry.</Text>
+        </Pressable>
+      )}
+
       <View style={styles.actionRow}>
         <ActionTile
-          title="Scan label"
-          body="Capture a product label"
+          title="Scan a product"
+          body="Barcode or label photo"
           dark
           icon="scan"
           onPress={() => onTab('scan')}
         />
         <ActionTile
-          title="Search claim"
-          body="Look up an ingredient"
-          icon="search"
-          onPress={() => onTab('search')}
-        />
-        <ActionTile
           title="My library"
-          body="View saved items"
+          body="Saved analyses"
           icon="book"
           onPress={() => onTab('library')}
         />
+        <ActionTile
+          title="Awareness feed"
+          body="Real source updates"
+          icon="doc"
+          onPress={() => onTab('feed')}
+        />
       </View>
-
-      <SearchBox value={query} onChangeText={setQuery} onSubmit={submitSearch} />
 
       <SectionTitle title="Continue scans" action="See all" onAction={() => onTab('library')} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.edgeCarousel}>
@@ -584,297 +765,114 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, rec
         ) : (
           <View style={styles.emptyMiniCard}>
             <Text style={styles.emptyMiniTitle}>No recent scans yet</Text>
-            <Text style={styles.emptyMiniBody}>Scan a label to pick up where you left off.</Text>
+            <Text style={styles.emptyMiniBody}>Scan a product to start building your history.</Text>
           </View>
         )}
       </ScrollView>
 
-      <SectionTitle title="Today's feed" action="See all" onAction={() => onTab('feed')} />
+      <SectionTitle title="Your feed" action="See all" onAction={() => onTab('feed')} />
+      {feedLoading ? <Text style={styles.homeMeta}>Loading your feed...</Text> : null}
+      {!!feedError && (
+        <Pressable onPress={onRetryFeed}>
+          <Text style={styles.homeError}>{feedError} Tap to retry feed.</Text>
+        </Pressable>
+      )}
       {feedCards.slice(0, 3).map((card) => (
-        <FeedCard key={card.id} card={card} onPress={onResult} />
+        <FeedCard key={card.id} card={card} onPress={() => onFeedOpen(card)} />
       ))}
+      {!feedCards.length && !feedLoading && !feedError ? (
+        <View style={styles.emptyMiniCard}>
+          <Text style={styles.emptyMiniBody}>Scan a product to unlock personalized awareness updates.</Text>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
 
-function ScanScreen({ onBack, onResult }) {
-  const { width } = useWindowDimensions();
-  const guideSize = Math.min(Math.max(width - 96, 180), 240);
-  const cameraRef = useRef(null);
-  const [permission, requestPermission] = useCameraPermissions();
-  const [photo, setPhoto] = useState(null);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState('');
-
-  async function captureLabel() {
-    if (!cameraRef.current || isCapturing) return;
-
-    try {
-      setIsCapturing(true);
-      const picture = await cameraRef.current.takePictureAsync({
-        quality: 0.42,
-        skipProcessing: true,
-        base64: true,
-      });
-      setPhoto(picture);
-      setAnalysisError('');
-    } finally {
-      setIsCapturing(false);
-    }
-  }
-
-  async function usePhoto() {
-    if (!photo || isAnalyzing) return;
-
-    console.log('[wellumi-debug] Use Photo tapped', {
-      hasPhoto: Boolean(photo),
-      hasBase64: Boolean(photo?.base64),
-      base64Length: photo?.base64?.length || 0,
-    });
-
-    try {
-      setIsAnalyzing(true);
-      setAnalysisError('');
-      const result = await analyzeLabelImage(photo);
-      onResult(result);
-    } catch (error) {
-      const technicalMessage = error?.message || '';
-      const fallbackMessage = technicalMessage.includes('took too long')
-        ? 'The label scan took too long. Showing a mock summary for now.'
-        : 'Wellumi could not read this label right now. Showing a mock summary for now.';
-      const alertMessage = technicalMessage
-        ? `${fallbackMessage}\n\nTechnical detail: ${technicalMessage}`
-        : fallbackMessage;
-      console.log('[wellumi-debug] Label analysis failed; using mock summary', {
-        message: technicalMessage || fallbackMessage,
-      });
-      setAnalysisError(alertMessage);
-      Alert.alert('Using mock summary', alertMessage);
-      onResult(mockResultSummary);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }
-
-  if (!permission) {
-    return (
-      <View style={styles.cameraShell}>
-        <Pressable style={styles.cameraBackButton} onPress={onBack}>
-          <Text style={styles.cameraBackText}>Back</Text>
-        </Pressable>
-        <View style={styles.permissionCard}>
-          <Icon name="scan" color={colors.green} size={72} />
-          <Text style={styles.permissionTitle}>Preparing camera</Text>
-          <Text style={styles.permissionBody}>Wellumi is checking camera access for label capture.</Text>
-        </View>
-      </View>
-    );
-  }
-
-  if (!permission.granted) {
-    return (
-      <View style={styles.cameraShell}>
-        <Pressable style={styles.cameraBackButton} onPress={onBack}>
-          <Text style={styles.cameraBackText}>Back</Text>
-        </Pressable>
-        <View style={styles.permissionCard}>
-          <Icon name="scan" color={colors.green} size={72} />
-          <Text style={styles.permissionTitle}>Camera access needed</Text>
-          <Text style={styles.permissionBody}>Allow camera access to capture a supplement or OTC label.</Text>
-          <PrimaryButton title="Allow Camera" onPress={requestPermission} />
-        </View>
-      </View>
-    );
-  }
-
-  if (photo) {
-    return (
-      <View style={styles.cameraShell}>
-        <Pressable style={styles.cameraBackButton} onPress={onBack}>
-          <Text style={styles.cameraBackText}>Back</Text>
-        </Pressable>
-        <View style={styles.cameraHeader}>
-          <Text style={styles.cameraTitle}>Review label</Text>
-          <Text style={styles.cameraSubtitle}>Confirm the label is readable before we summarize it.</Text>
-        </View>
-        <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
-        {!!analysisError && <Text style={styles.analysisError}>{analysisError}</Text>}
-        <View style={styles.cameraActions}>
-          <PrimaryButton title={isAnalyzing ? 'Reading label...' : 'Use photo'} onPress={usePhoto} disabled={isAnalyzing} />
-          <SecondaryButton title="Retake" onPress={() => setPhoto(null)} disabled={isAnalyzing} />
-        </View>
-      </View>
-    );
-  }
-
+function SearchScreen({ styles, ScreenHeader }) {
   return (
-    <View style={styles.cameraShell}>
-      <CameraView ref={cameraRef} style={styles.cameraPreview} facing="back">
-        <View style={styles.cameraOverlay}>
-          <Pressable style={styles.cameraBackButtonDark} onPress={onBack}>
-            <Text style={styles.cameraBackTextDark}>Back</Text>
-          </Pressable>
-          <View style={styles.cameraGuide}>
-            <View style={[styles.cameraGuideCorner, { width: guideSize, height: guideSize }]} />
-            <Text style={styles.cameraGuideText}>Frame the label clearly</Text>
-          </View>
-          <View style={styles.capturePanel}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.captureButton,
-                isCapturing && styles.disabledButton,
-                pressed && styles.pressed,
-              ]}
-              onPress={captureLabel}
-              disabled={isCapturing}
-            >
-              <Text style={styles.captureButtonText}>{isCapturing ? 'Capturing...' : 'Capture label'}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </CameraView>
-    </View>
-  );
-}
-
-function SearchScreen({ query, setQuery, onSearch, onResult }) {
-  function submitSearch(searchText = query) {
-    onSearch(searchText);
-    onResult();
-  }
-
-  return (
-    <ScreenScroll>
-      <ScreenHeader title="Search claim" subtitle="Find source-backed context for a product, ingredient, or claim." />
-      <SearchBox value={query} onChangeText={setQuery} onSubmit={() => submitSearch()} />
-      <SectionTitle title="Popular searches" />
-      {libraryItems.map((item) => (
-        <Pressable key={item.id} style={styles.listRow} onPress={() => submitSearch(item.title)}>
-          <View style={styles.listRowCopy}>
-            <Text style={styles.rowTitle} numberOfLines={2}>{item.title}</Text>
-            <Text style={styles.rowBody} numberOfLines={2}>{item.body}</Text>
-          </View>
-          <Text style={styles.arrow}>›</Text>
-        </Pressable>
-      ))}
-      <GuardrailNote />
-    </ScreenScroll>
-  );
-}
-
-function ResultScreen({ result, isSaved, onBack, onSave }) {
-  return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.resultScroll}>
-      <Pressable style={styles.backButton} onPress={onBack}>
-        <Text style={styles.backText}>Back</Text>
-      </Pressable>
-      <View style={styles.resultHero}>
-        <View style={styles.pill}>
-          <Text style={styles.pillText}>{result.kicker || 'Label summary'}</Text>
-        </View>
-        <Text style={styles.resultTitle}>{result.title}</Text>
-        <Text style={styles.resultBody}>
-          {result.neutralDisclaimer ||
-            'General information only. Ask a qualified professional for personal guidance.'}
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
+      <ScreenHeader
+        title="Search"
+        subtitle="Coming after the scan MVP. Use Scan to identify products with real data today."
+      />
+      <View style={styles.emptyStateCard}>
+        <Text style={styles.emptyStateTitle}>Search is not available yet</Text>
+        <Text style={styles.emptyStateBody}>
+          Wellumi search will cover your scans, saved products, and catalog records in a later release.
         </Text>
       </View>
-      {result.sections.map((section) => (
-        <InfoCard key={section.title} title={section.title} body={section.body} />
-      ))}
-      {!!result.detectedLabelText && (
-        <InfoCard compact title="Detected label text" body={result.detectedLabelText} />
-      )}
-      <InfoCard compact title="Important note" body={result.longDisclaimer || mockResultSummary.longDisclaimer} />
-      <PrimaryButton title={isSaved ? 'Saved to library' : 'Save to library'} onPress={onSave} disabled={isSaved} />
-      <GuardrailNote />
     </ScrollView>
   );
 }
 
-function LibraryScreen({ items, onOpen }) {
-  return (
-    <ScreenScroll>
-      <ScreenHeader title="My library" subtitle="Saved scans, products, and topics." />
-      {items.length ? (
-        items.map((item) => (
-          <Pressable key={item.id} style={styles.libraryCard} onPress={() => onOpen(item)}>
-            <View style={styles.libraryTypeBadge}>
-              <Text style={styles.libraryTypeText} numberOfLines={1}>{item.type}</Text>
-            </View>
-            <View style={styles.libraryText}>
-              <Text style={styles.libraryTitle} numberOfLines={2}>{item.title}</Text>
-              <Text style={styles.libraryDescription} numberOfLines={3}>{item.description}</Text>
-              <Text style={styles.librarySavedAt}>{item.savedAtLabel}</Text>
-            </View>
-            <Icon name="bookmark" color={colors.green} size={22} />
-          </Pressable>
-        ))
-      ) : (
-        <EmptyState
-          title="Nothing saved yet"
-          body="Save a scan or topic to build your Wellumi library."
-        />
-      )}
-    </ScreenScroll>
-  );
-}
-
-function FeedScreen({ cards, activeFilter, onFilter, onOpen }) {
-  const visibleCards = activeFilter === 'All'
-    ? cards
-    : cards.filter((card) => card.filterType === activeFilter);
+function ProfileScreen({
+  styles,
+  ScreenHeader,
+  InfoCard,
+  Icon,
+  scanCount,
+  savedCount,
+  feedCount,
+  userId,
+  profile,
+  preferences,
+  interestProfile,
+  onUpgradeEmail,
+  onSignOut,
+}) {
+  const accountLabel =
+    profile?.account_type === 'email'
+      ? 'Email account'
+      : profile?.account_type === 'apple'
+        ? 'Apple account'
+        : 'Guest account';
 
   return (
-    <ScreenScroll>
-      <ScreenHeader title="Awareness feed" subtitle="Updates based on your scans, searches, and saved topics." />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
-        {feedFilters.map((filter) => (
-          <Pressable
-            key={filter}
-            style={[styles.filterChip, activeFilter === filter && styles.filterChipActive]}
-            onPress={() => onFilter(filter)}
-          >
-            <Text style={[styles.filterChipText, activeFilter === filter && styles.filterChipTextActive]} numberOfLines={1}>
-              {filter}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-      {visibleCards.length ? (
-        visibleCards.map((card) => (
-          <FeedCard key={card.id} card={card} onPress={onOpen} />
-        ))
-      ) : (
-        <EmptyState
-          title="No updates in this filter"
-          body="Scan, search, or save topics to shape this awareness feed."
-        />
-      )}
-      <GuardrailNote />
-    </ScreenScroll>
-  );
-}
-
-function ProfileScreen() {
-  return (
-    <ScreenScroll>
-      <ScreenHeader title="Profile" subtitle="Your Wellumi settings and preferences." />
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
+      <ScreenHeader title="Profile" subtitle="Your Wellumi account, preferences, and learning summary." />
       <View style={styles.profileCard}>
         <View style={styles.profileSummaryRow}>
           <View style={styles.largeProfileBubble}>
             <Icon name="profile" color={colors.greenDark} size={32} />
           </View>
           <View style={styles.profileSummaryText}>
-            <Text style={styles.profileName}>Wellumi member</Text>
-            <Text style={styles.profileCaption}>Personalized on this device</Text>
+            <Text style={styles.profileName}>{profile?.display_name || 'Wellumi member'}</Text>
+            <Text style={styles.profileCaption}>
+              {accountLabel} · {scanCount} scans · {savedCount} saved · {feedCount} feed items
+            </Text>
           </View>
         </View>
       </View>
-      <InfoCard title="Interests" body="Label literacy, saved topics, and source-backed context." />
-      <InfoCard title="Preferences" body="Plain-language summaries with conservative wording." />
-      <InfoCard title="Data & privacy" body="Your scans and saves stay on this device for now." />
-    </ScreenScroll>
+      <InfoCard
+        title="Selected interests"
+        body={(preferences?.selected_interests || []).join(', ') || 'Complete onboarding to set interests.'}
+      />
+      <InfoCard
+        title="Wellumi is learning from"
+        body={
+          (interestProfile?.topics || [])
+            .slice(0, 4)
+            .map((item) => item.sourceSummary?.[0] || item.topic)
+            .join(' · ') || 'Your onboarding choices and product activity will appear here.'
+        }
+      />
+      <InfoCard
+        title="Data & privacy"
+        body="Your scans, analyses, saved products, preferences, and feed matches are stored in Supabase. Guest activity is tied to this device identity until you upgrade."
+      />
+      {profile?.account_type === 'guest' ? (
+        <Pressable style={styles.primaryButton} onPress={onUpgradeEmail}>
+          <Text style={styles.primaryButtonText}>Save with email</Text>
+        </Pressable>
+      ) : null}
+      <Pressable style={styles.secondaryButton} onPress={onSignOut}>
+        <Text style={styles.secondaryButtonText}>Sign out</Text>
+      </Pressable>
+      {__DEV__ && !!userId ? (
+        <InfoCard title="Development user ID" body={userId} />
+      ) : null}
+    </ScrollView>
   );
 }
 
@@ -946,25 +944,39 @@ function ProductBottle({ item }) {
 }
 
 function FeedCard({ card, onPress }) {
+  const markerStyle = card.safetyFlag
+    ? styles.feedMarkerSafety
+    : card.isPersonalized
+      ? styles.feedMarkerPersonalized
+      : styles.feedMarkerGeneral;
+
   return (
     <Pressable style={({ pressed }) => [styles.feedCard, pressed && styles.pressed]} onPress={onPress}>
-      <View style={styles.updateMarker}>
-        <Text style={styles.updateMarkerText} numberOfLines={3}>{card.updateType}</Text>
+      <View style={[styles.updateMarker, markerStyle]}>
+        <Text style={[styles.updateMarkerText, card.safetyFlag && styles.updateMarkerTextSafety]} numberOfLines={4}>
+          {card.safetyFlag ? 'Safety' : card.isPersonalized ? 'For you' : card.updateType}
+        </Text>
       </View>
       <View style={styles.feedCopy}>
         <View style={styles.feedTopLine}>
-          <Text style={styles.feedReason} numberOfLines={1}>{card.reasonLabel}</Text>
+          <Text style={styles.feedReason} numberOfLines={2}>{card.reasonLabel}</Text>
           <Text style={styles.feedDate} numberOfLines={1}>{card.date}</Text>
         </View>
-        <Text style={styles.feedTitle} numberOfLines={2}>{card.title}</Text>
-        <Text style={styles.feedBody} numberOfLines={2}>{card.summary || card.body}</Text>
+        <Text style={styles.feedTitle} numberOfLines={3}>{card.title}</Text>
+        <Text style={styles.feedBody} numberOfLines={3}>{card.summary || card.deck}</Text>
         <View style={styles.feedFooter}>
           <View style={styles.feedPill}>
             <Icon name="doc" color={colors.green} size={14} />
             <Text style={styles.feedPillText} numberOfLines={1}>{card.sourceLabel}</Text>
           </View>
-          <Text style={styles.feedCta} numberOfLines={1}>{card.cta} ›</Text>
+          <Text style={styles.feedCta} numberOfLines={1}>Read story ›</Text>
         </View>
+        {__DEV__ && !!card.generationMode ? (
+          <Text style={styles.feedDevMeta}>
+            generation_mode: {card.generationMode}
+            {card.fallbackReason ? ` · ${card.fallbackReason}` : ''}
+          </Text>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -1466,6 +1478,40 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
   },
+  feedMarkerGeneral: {
+    backgroundColor: colors.greenSoft,
+  },
+  feedMarkerPersonalized: {
+    backgroundColor: '#E8F0E4',
+  },
+  feedMarkerSafety: {
+    backgroundColor: '#F8E8E4',
+  },
+  updateMarkerTextSafety: {
+    color: '#9A4D3D',
+  },
+  feedSafetyBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F8E8E4',
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  feedSafetyBadgeText: {
+    color: '#9A4D3D',
+    ...typography.label,
+  },
+  feedReasonDetail: {
+    color: colors.greenDark,
+    ...typography.bodyStrong,
+    marginTop: spacing.sm,
+  },
+  feedSourceLink: {
+    color: colors.green,
+    ...typography.body,
+    marginBottom: spacing.sm,
+  },
   articleArt: { width: 126, height: 112, borderRadius: 16, marginLeft: 4, overflow: 'hidden' },
   articleArtSmall: { width: 66, height: 66, marginLeft: 0, marginRight: 14 },
   artBlobOne: {
@@ -1533,6 +1579,60 @@ const styles = StyleSheet.create({
   },
   feedPillText: { color: colors.green, ...typography.label, fontWeight: '700', flex: 1 },
   feedCta: { color: colors.green, ...typography.caption, fontWeight: '800', flexShrink: 0 },
+  feedDevMeta: {
+    color: colors.mutedLight,
+    ...typography.micro,
+    marginTop: spacing.xs,
+  },
+  feedFeedbackRow: { marginTop: spacing.sm, gap: spacing.sm },
+  feedFeedbackAction: { color: colors.green, ...typography.caption, fontWeight: '700' },
+  onboardingScroll: {
+    paddingHorizontal: layout.screenPaddingX,
+    paddingTop: layout.screenPaddingTop,
+    paddingBottom: layout.screenPaddingBottom,
+    gap: spacing.lg,
+  },
+  onboardingTitle: { color: colors.greenDark, ...typography.displaySm, marginBottom: spacing.sm },
+  onboardingBody: { color: colors.muted, ...typography.body, marginBottom: spacing.lg },
+  onboardingChipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
+  onboardingChip: {
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.white,
+  },
+  onboardingChipSelected: { backgroundColor: colors.greenSoft, borderColor: colors.green },
+  onboardingChipText: { color: colors.greenDark, ...typography.caption },
+  onboardingChipTextSelected: { color: colors.green, fontWeight: '800' },
+  balanceRow: { marginBottom: spacing.md },
+  balanceLabel: { color: colors.greenDark, ...typography.bodyStrong, marginBottom: spacing.sm },
+  balanceOptions: { flexDirection: 'row', gap: spacing.sm },
+  balancePill: {
+    flex: 1,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+  },
+  balancePillSelected: { backgroundColor: colors.green, borderColor: colors.green },
+  balancePillText: { color: colors.greenDark, ...typography.caption, textTransform: 'capitalize' },
+  balancePillTextSelected: { color: colors.white, fontWeight: '800' },
+  emailBlock: { marginTop: spacing.md },
+  emailInput: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.white,
+    color: colors.greenDark,
+  },
+  onboardingFinePrint: { color: colors.mutedLight, ...typography.caption, marginTop: spacing.md },
+  onboardingError: { color: '#B42318', ...typography.caption, marginTop: spacing.md },
   filterRow: { marginHorizontal: -layout.screenPaddingX, marginBottom: spacing.lg - 2 },
   filterRowContent: { paddingHorizontal: layout.screenPaddingX, gap: spacing.sm },
   filterChip: {
@@ -1831,6 +1931,77 @@ const styles = StyleSheet.create({
   profileSummaryText: { marginLeft: spacing.md - 2, flex: 1, minWidth: 0 },
   profileName: { color: colors.greenDark, ...typography.headline, fontSize: 20, lineHeight: 26 },
   profileCaption: { color: colors.muted, ...typography.caption, marginTop: spacing.xs },
+  homeError: { color: colors.danger, ...typography.caption, marginBottom: spacing.md },
+  homeMeta: { color: colors.muted, ...typography.caption, marginBottom: spacing.md },
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xxl,
+    gap: spacing.md,
+  },
+  stateTitle: { color: colors.greenDark, ...typography.headline, textAlign: 'center' },
+  stateBody: { color: colors.muted, ...typography.body, textAlign: 'center' },
+  retryButton: {
+    marginTop: spacing.sm,
+    backgroundColor: colors.green,
+    borderRadius: radii.lg - 2,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  retryButtonText: { color: colors.white, ...typography.button },
+  barcodeValue: {
+    color: colors.greenDark,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginVertical: spacing.md,
+  },
+  scanMetaText: { color: colors.green, ...typography.caption, marginTop: spacing.xs },
+  resultMeta: { color: colors.heroText, ...typography.caption, marginTop: spacing.xs },
+  resultImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: radii.lg,
+    marginBottom: layout.cardGap,
+    backgroundColor: colors.cardSoft,
+  },
+  resultSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  resultBadge: {
+    color: colors.green,
+    ...typography.micro,
+    backgroundColor: colors.greenSoft,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  resultSubsection: { marginTop: spacing.sm },
+  resultSubheading: { color: colors.greenDark, ...typography.bodyStrong, marginBottom: spacing.xs },
+  missingLine: { color: colors.mutedLight, ...typography.caption, fontStyle: 'italic' },
+  feedRefreshButton: {
+    alignSelf: 'flex-start',
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
+    backgroundColor: colors.greenSoft,
+  },
+  feedRefreshText: { color: colors.green, ...typography.caption, fontWeight: '800' },
+  feedStaleNote: {
+    color: colors.muted,
+    ...typography.caption,
+    marginBottom: spacing.md,
+    backgroundColor: colors.surfaceWarm,
+    borderRadius: radii.md,
+    padding: spacing.md,
+  },
   tabBar: {
     position: 'absolute',
     left: spacing.md + 2,

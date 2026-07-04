@@ -29,13 +29,12 @@ Fill in:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `USDA_FDC_API_KEY` (optional but recommended for nutrition fallback)
 
-### 3. Apply database migration
+### 3. Apply database migrations
 
-In the Supabase SQL editor, run:
+Run in order in the Supabase SQL editor:
 
-```bash
-server/migrations/001_initial_schema.sql
-```
+1. `server/migrations/001_initial_schema.sql` (if not already applied)
+2. `server/migrations/002_working_mvp.sql`
 
 Also enable anonymous sign-in in Supabase Auth:
 

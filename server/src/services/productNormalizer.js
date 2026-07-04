@@ -98,10 +98,7 @@ function mergeProductRecords(base, enrichment) {
   if (!base) return enrichment;
   if (!enrichment) return base;
 
-  const mergedNutrition = {
-    ...base.nutrition_data,
-  };
-
+  const mergedNutrition = { ...base.nutrition_data };
   if (enrichment.nutrition_data && Object.keys(enrichment.nutrition_data).length) {
     mergedNutrition.fallback = enrichment.nutrition_data;
     mergedNutrition.sources = [
@@ -112,7 +109,7 @@ function mergeProductRecords(base, enrichment) {
 
   return {
     barcode: base.barcode || enrichment.barcode || null,
-    name: base.name || enrichment.name,
+    name: base.name && base.name !== 'Unknown product' ? base.name : enrichment.name,
     brand: base.brand || enrichment.brand || null,
     ingredients_text: base.ingredients_text || enrichment.ingredients_text || null,
     ingredients_data: {
@@ -130,14 +127,49 @@ function mergeProductRecords(base, enrichment) {
   };
 }
 
+function buildSourceAttribution(product, labelSummary) {
+  const sources = [];
+
+  if (product?.raw_source_data?.open_food_facts) {
+    sources.push({
+      name: 'Open Food Facts',
+      type: 'product_facts',
+      label: 'Product facts from Open Food Facts',
+    });
+  }
+
+  if (product?.raw_source_data?.usda_fdc) {
+    sources.push({
+      name: 'USDA FoodData Central',
+      type: 'nutrition_facts',
+      label: 'Nutrition context from USDA FoodData Central',
+    });
+  }
+
+  if (labelSummary || product?.raw_source_data?.openai_label) {
+    sources.push({
+      name: 'OpenAI label analysis',
+      type: 'ai_context',
+      label: 'AI-generated informational context (not verified product data)',
+    });
+  }
+
+  return sources;
+}
+
 function buildAnalysisFromLabelSummary(labelSummary, { model, promptVersion }) {
   const sections = [
-    { title: 'What it is', body: labelSummary.what_it_is },
-    { title: 'What people commonly use it for', body: labelSummary.what_people_commonly_use_it_for },
-    { title: 'What sources say', body: labelSummary.what_sources_say },
+    { title: 'What it is', body: labelSummary.what_it_is, kind: 'ai_context' },
+    {
+      title: 'What people commonly use it for',
+      body: labelSummary.what_people_commonly_use_it_for,
+      kind: 'ai_context',
+    },
+    { title: 'What sources say', body: labelSummary.what_sources_say, kind: 'ai_context' },
     {
       title: 'Questions to ask a professional',
       body: labelSummary.questions_to_ask_a_professional.join('\n'),
+      kind: 'ai_context',
     },
   ];
 
@@ -159,7 +191,33 @@ function buildAnalysisFromLabelSummary(labelSummary, { model, promptVersion }) {
   };
 }
 
+function buildBarcodeOnlyAnalysis(product) {
+  return {
+    score: null,
+    summary:
+      'Source-backed product details were retrieved from external databases. AI label analysis was not required for this scan.',
+    positives: [
+      {
+        title: 'Product record',
+        body: `${product.name}${product.brand ? ` by ${product.brand}` : ''}`,
+        kind: 'product_facts',
+      },
+    ],
+    concerns: [
+      {
+        type: 'analysis_notice',
+        body: 'External product facts are informational only and may be incomplete.',
+      },
+    ],
+    allergen_flags: [],
+    confidence: null,
+    model: null,
+    prompt_version: null,
+  };
+}
+
 function toLegacyAnalyzeLabelResponse(labelSummary) {
+  if (!labelSummary) return {};
   return {
     product_name: labelSummary.product_name,
     detected_label_text: labelSummary.detected_label_text,
@@ -172,14 +230,27 @@ function toLegacyAnalyzeLabelResponse(labelSummary) {
 }
 
 function toClientScanResponse({ product, analysis, scan, labelSummary }) {
-  const legacy = labelSummary ? toLegacyAnalyzeLabelResponse(labelSummary) : null;
+  const legacy = labelSummary ? toLegacyAnalyzeLabelResponse(labelSummary) : {};
+  const labelFacts = {
+    ingredients_text: product.ingredients_text || null,
+    extracted_text: labelSummary?.detected_label_text || scan?.extracted_text || null,
+    nutrition_data: product.nutrition_data || {},
+  };
 
   return {
-    ...(legacy || {}),
+    ...legacy,
     persisted: true,
     product,
     analysis,
     scan,
+    label_facts: labelFacts,
+    ai_context: labelSummary
+      ? {
+          sections: analysis?.positives || [],
+          disclaimer: analysis?.summary || labelSummary.neutral_disclaimer,
+        }
+      : null,
+    sources: buildSourceAttribution(product, labelSummary),
   };
 }
 
@@ -189,6 +260,8 @@ module.exports = {
   normalizeFromOpenAi,
   mergeProductRecords,
   buildAnalysisFromLabelSummary,
+  buildBarcodeOnlyAnalysis,
+  buildSourceAttribution,
   toLegacyAnalyzeLabelResponse,
   toClientScanResponse,
 };
