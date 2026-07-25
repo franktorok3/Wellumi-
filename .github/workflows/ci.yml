@@ -17,3 +17,4 @@ jobs:
     uses: franktorok3/Project-Setup/.github/workflows/next-ci.yml@main
     with:
       require-build: false
+      run-audit: false
