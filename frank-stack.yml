@@ -1,0 +1,16 @@
+standard_version: 1
+level: prototype
+
+platform:
+  framework: expo
+  hosting: none
+  database: none
+  analytics: none
+
+required:
+  ci: true
+  migrations: false
+  telemetry: false
+  health_check: false
+  rls: false
+  error_tracking: false
