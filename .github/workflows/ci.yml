@@ -1,0 +1,19 @@
+name: Project Standard CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  standard:
+    uses: franktorok3/Project-Setup/.github/workflows/next-ci.yml@main
+    with:
+      require-build: false
