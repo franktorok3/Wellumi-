@@ -1,0 +1,14 @@
+name: Project Standard CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  manifest:
+    uses: franktorok3/Project-Setup/.github/workflows/manifest.yml@main
