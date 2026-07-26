@@ -1,16 +1,26 @@
-standard_version: 1
-level: prototype
-
-platform:
+schema_version: 1
+standard:
+  repository: franktorok3/Project-Setup
+  ref: main
+project:
+  name: Wellumi-
+  lifecycle: prototype
   framework: expo
-  hosting: none
-  database: none
+  runtime: node
+  node_version: "22"
+quality_gates:
+  lockfile_required: true
+  lint: optional
+  typecheck: optional
+  tests: optional
+  build: platform-gated
+  dependency_audit: report
+operations:
+  deployment: expo
   analytics: none
-
-required:
-  ci: true
-  migrations: false
-  telemetry: false
-  health_check: false
-  rls: false
-  error_tracking: false
+  data_store: none
+  helicarrier: planned
+security:
+  secrets_in_repository: prohibited
+  production_changes_via_pull_request: required
+  missing_evidence_is_healthy: false
