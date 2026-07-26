@@ -26,10 +26,17 @@ const colors = {
   green: '#3F794D',
   greenDark: '#193D2B',
   greenSoft: '#EAF0E6',
+  greenMuted: '#B8C8AD',
   ink: '#16291F',
   muted: '#6E716D',
+  mutedLight: '#8A8F8C',
   line: '#E9E4DA',
   shadow: '#3A3328',
+  white: '#FFFFFF',
+  heroText: '#E7EFE6',
+  surfaceWarm: '#F1EBDD',
+  surfaceMuted: '#EEF0E8',
+  tabInactive: '#5B6060',
 };
 
 const spacing = {
@@ -39,6 +46,38 @@ const spacing = {
   lg: 16,
   xl: 20,
   xxl: 28,
+  xxxl: 36,
+};
+
+const radii = {
+  sm: 12,
+  md: 16,
+  lg: 20,
+  xl: 24,
+  xxl: 28,
+  pill: 999,
+};
+
+const typography = {
+  display: { fontSize: 32, lineHeight: 38, fontWeight: '800', letterSpacing: -0.2 },
+  displaySm: { fontSize: 28, lineHeight: 34, fontWeight: '800', letterSpacing: -0.1 },
+  title: { fontSize: 22, lineHeight: 28, fontWeight: '800' },
+  headline: { fontSize: 17, lineHeight: 22, fontWeight: '800' },
+  body: { fontSize: 15, lineHeight: 22, fontWeight: '400' },
+  bodyStrong: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
+  caption: { fontSize: 13, lineHeight: 18, fontWeight: '500' },
+  label: { fontSize: 11, lineHeight: 15, fontWeight: '800' },
+  micro: { fontSize: 10, lineHeight: 14, fontWeight: '700' },
+  button: { fontSize: 16, lineHeight: 20, fontWeight: '800' },
+};
+
+const layout = {
+  screenPaddingX: spacing.xl,
+  screenPaddingTop: spacing.md,
+  screenPaddingBottom: 132,
+  sectionGap: spacing.xl,
+  cardGap: spacing.md - 1,
+  contentMaxWidth: 520,
 };
 
 const scanItems = [
@@ -407,7 +446,7 @@ function SplashScreen() {
       </View>
       <View style={styles.splashBrandRow}>
         <Text style={styles.splashBrand}>Wellumi</Text>
-        <View style={styles.splashAccentLeaf} />
+        <BrandLeaf style={styles.splashAccentLeaf} />
       </View>
       <Text style={styles.splashLine}>Make sense of what you're seeing.</Text>
     </SafeAreaView>
@@ -551,9 +590,6 @@ export default function App() {
 }
 
 function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, recentScans }) {
-  const { width } = useWindowDimensions();
-  const tileWidth = Math.max(92, (width - 58) / 3);
-
   function submitSearch() {
     onSearch(query);
     onResult();
@@ -562,44 +598,43 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, rec
   return (
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.homeScroll}>
       <View style={styles.topRow}>
-        <View>
-          <Text style={styles.heroTitle}>Good morning</Text>
+        <View style={styles.heroCopy}>
+          <Text style={styles.heroTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+            Good morning
+          </Text>
           <View style={styles.brandRow}>
             <Text style={styles.heroBrand}>Wellumi</Text>
-            <View style={styles.tinyLeaf} />
+            <BrandLeaf style={styles.tinyLeaf} />
           </View>
         </View>
         <View style={styles.headerActions}>
-          <Pressable style={styles.bellButton}>
+          <Pressable style={styles.bellButton} accessibilityLabel="Notifications">
             <BellIcon />
             <View style={styles.notificationDot} />
           </Pressable>
-          <Pressable style={styles.profileBubble}>
-            <Icon name="profile" color={colors.greenDark} size={28} />
+          <Pressable style={styles.profileBubble} accessibilityLabel="Profile">
+            <Icon name="profile" color={colors.greenDark} size={26} />
           </Pressable>
         </View>
       </View>
 
       <View style={styles.actionRow}>
         <ActionTile
-          width={tileWidth}
           title="Scan label"
-          body="Scan a label"
+          body="Capture a product label"
           dark
           icon="scan"
           onPress={() => onTab('scan')}
         />
         <ActionTile
-          width={tileWidth}
           title="Search claim"
-          body="Search a claim"
+          body="Look up an ingredient"
           icon="search"
           onPress={() => onTab('search')}
         />
         <ActionTile
-          width={tileWidth}
           title="My library"
-          body="Saved items"
+          body="View saved items"
           icon="book"
           onPress={() => onTab('library')}
         />
@@ -607,7 +642,7 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, rec
 
       <SearchBox value={query} onChangeText={setQuery} onSubmit={submitSearch} />
 
-      <SectionTitle title="Continue Scans" action="See all" />
+      <SectionTitle title="Continue scans" action="See all" onAction={() => onTab('library')} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.edgeCarousel}>
         {recentScans.length ? (
           recentScans.map((item) => (
@@ -615,13 +650,13 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, rec
           ))
         ) : (
           <View style={styles.emptyMiniCard}>
-            <Text style={styles.emptyMiniTitle}>No recent scans yet.</Text>
-            <Text style={styles.emptyMiniBody}>Scan a label to continue from here.</Text>
+            <Text style={styles.emptyMiniTitle}>No recent scans yet</Text>
+            <Text style={styles.emptyMiniBody}>Scan a label to pick up where you left off.</Text>
           </View>
         )}
       </ScrollView>
 
-      <SectionTitle title="Today's Feed" action="See all" />
+      <SectionTitle title="Today's feed" action="See all" onAction={() => onTab('feed')} />
       {feedCards.slice(0, 3).map((card) => (
         <FeedCard key={card.id} card={card} onPress={onResult} />
       ))}
@@ -630,6 +665,8 @@ function HomeScreen({ query, setQuery, onTab, onSearch, onResult, feedCards, rec
 }
 
 function ScanScreen({ onBack, onResult }) {
+  const { width } = useWindowDimensions();
+  const guideSize = Math.min(Math.max(width - 96, 180), 240);
   const cameraRef = useRef(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [photo, setPhoto] = useState(null);
@@ -727,16 +764,13 @@ function ScanScreen({ onBack, onResult }) {
         </Pressable>
         <View style={styles.cameraHeader}>
           <Text style={styles.cameraTitle}>Review label</Text>
-          <Text style={styles.cameraSubtitle}>Use this photo to read the label summary.</Text>
-            <Text style={styles.debugLine} numberOfLines={1}>Dev: {API_BASE_URL}</Text>
+          <Text style={styles.cameraSubtitle}>Confirm the label is readable before we summarize it.</Text>
         </View>
         <Image source={{ uri: photo.uri }} style={styles.photoPreview} />
         {!!analysisError && <Text style={styles.analysisError}>{analysisError}</Text>}
         <View style={styles.cameraActions}>
-          <PrimaryButton title={isAnalyzing ? 'Reading label...' : 'Use Photo'} onPress={usePhoto} disabled={isAnalyzing} />
-          <Pressable style={styles.secondaryButton} onPress={() => setPhoto(null)} disabled={isAnalyzing}>
-            <Text style={styles.secondaryButtonText}>Retake</Text>
-          </Pressable>
+          <PrimaryButton title={isAnalyzing ? 'Reading label...' : 'Use photo'} onPress={usePhoto} disabled={isAnalyzing} />
+          <SecondaryButton title="Retake" onPress={() => setPhoto(null)} disabled={isAnalyzing} />
         </View>
       </View>
     );
@@ -750,11 +784,10 @@ function ScanScreen({ onBack, onResult }) {
             <Text style={styles.cameraBackTextDark}>Back</Text>
           </Pressable>
           <View style={styles.cameraGuide}>
-            <View style={styles.cameraGuideCorner} />
+            <View style={[styles.cameraGuideCorner, { width: guideSize, height: guideSize }]} />
             <Text style={styles.cameraGuideText}>Frame the label clearly</Text>
           </View>
           <View style={styles.capturePanel}>
-            <Text style={styles.debugLineLight} numberOfLines={1}>Dev: {API_BASE_URL}</Text>
             <Pressable
               style={({ pressed }) => [
                 styles.captureButton,
@@ -764,7 +797,7 @@ function ScanScreen({ onBack, onResult }) {
               onPress={captureLabel}
               disabled={isCapturing}
             >
-              <Text style={styles.captureButtonText}>{isCapturing ? 'Capturing...' : 'Capture Label'}</Text>
+              <Text style={styles.captureButtonText}>{isCapturing ? 'Capturing...' : 'Capture label'}</Text>
             </Pressable>
           </View>
         </View>
@@ -780,21 +813,21 @@ function SearchScreen({ query, setQuery, onSearch, onResult }) {
   }
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
+    <ScreenScroll>
       <ScreenHeader title="Search claim" subtitle="Find source-backed context for a product, ingredient, or claim." />
       <SearchBox value={query} onChangeText={setQuery} onSubmit={() => submitSearch()} />
-      <Text style={styles.sectionHeading}>Popular searches</Text>
+      <SectionTitle title="Popular searches" />
       {libraryItems.map((item) => (
         <Pressable key={item.id} style={styles.listRow} onPress={() => submitSearch(item.title)}>
-          <View>
-            <Text style={styles.rowTitle}>{item.title}</Text>
-            <Text style={styles.rowBody}>{item.body}</Text>
+          <View style={styles.listRowCopy}>
+            <Text style={styles.rowTitle} numberOfLines={2}>{item.title}</Text>
+            <Text style={styles.rowBody} numberOfLines={2}>{item.body}</Text>
           </View>
           <Text style={styles.arrow}>›</Text>
         </Pressable>
       ))}
       <GuardrailNote />
-    </ScrollView>
+    </ScreenScroll>
   );
 }
 
@@ -805,8 +838,10 @@ function ResultScreen({ result, isSaved, onBack, onSave }) {
         <Text style={styles.backText}>Back</Text>
       </Pressable>
       <View style={styles.resultHero}>
-        <Text style={styles.pill}>{result.kicker || 'Label summary'}</Text>
-        <Text style={styles.resultTitle} numberOfLines={2} ellipsizeMode="tail">{result.title}</Text>
+        <View style={styles.pill}>
+          <Text style={styles.pillText}>{result.kicker || 'Label summary'}</Text>
+        </View>
+        <Text style={styles.resultTitle}>{result.title}</Text>
         <Text style={styles.resultBody}>
           {result.neutralDisclaimer ||
             'General information only. Ask a qualified professional for personal guidance.'}
@@ -819,7 +854,7 @@ function ResultScreen({ result, isSaved, onBack, onSave }) {
         <InfoCard compact title="Detected label text" body={result.detectedLabelText} />
       )}
       <InfoCard compact title="Important note" body={result.longDisclaimer || mockResultSummary.longDisclaimer} />
-      <PrimaryButton title={isSaved ? 'Saved' : 'Save to Library'} onPress={onSave} disabled={isSaved} />
+      <PrimaryButton title={isSaved ? 'Saved to library' : 'Save to library'} onPress={onSave} disabled={isSaved} />
       <GuardrailNote />
     </ScrollView>
   );
@@ -827,29 +862,29 @@ function ResultScreen({ result, isSaved, onBack, onSave }) {
 
 function LibraryScreen({ items, onOpen }) {
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
-      <ScreenHeader title="My Library" subtitle="Saved scans, products, and topics." />
+    <ScreenScroll>
+      <ScreenHeader title="My library" subtitle="Saved scans, products, and topics." />
       {items.length ? (
         items.map((item) => (
           <Pressable key={item.id} style={styles.libraryCard} onPress={() => onOpen(item)}>
             <View style={styles.libraryTypeBadge}>
-              <Text style={styles.libraryTypeText}>{item.type}</Text>
+              <Text style={styles.libraryTypeText} numberOfLines={1}>{item.type}</Text>
             </View>
             <View style={styles.libraryText}>
-              <Text style={styles.libraryTitle} numberOfLines={1} ellipsizeMode="tail">{item.title}</Text>
-              <Text style={styles.libraryDescription} numberOfLines={2}>{item.description}</Text>
+              <Text style={styles.libraryTitle} numberOfLines={2}>{item.title}</Text>
+              <Text style={styles.libraryDescription} numberOfLines={3}>{item.description}</Text>
               <Text style={styles.librarySavedAt}>{item.savedAtLabel}</Text>
             </View>
-            <Icon name="bookmark" color={colors.green} size={24} />
+            <Icon name="bookmark" color={colors.green} size={22} />
           </Pressable>
         ))
       ) : (
-        <View style={styles.emptyStateCard}>
-          <Text style={styles.emptyStateTitle}>Nothing saved yet.</Text>
-          <Text style={styles.emptyStateBody}>Save a scan or topic to build your Wellumi library.</Text>
-        </View>
+        <EmptyState
+          title="Nothing saved yet"
+          body="Save a scan or topic to build your Wellumi library."
+        />
       )}
-    </ScrollView>
+    </ScreenScroll>
   );
 }
 
@@ -859,16 +894,16 @@ function FeedScreen({ cards, activeFilter, onFilter, onOpen }) {
     : cards.filter((card) => card.filterType === activeFilter);
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
-      <ScreenHeader title="Awareness Feed" subtitle="Updates based on your scans, searches, and saved topics." />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+    <ScreenScroll>
+      <ScreenHeader title="Awareness feed" subtitle="Updates based on your scans, searches, and saved topics." />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterRowContent}>
         {feedFilters.map((filter) => (
           <Pressable
             key={filter}
             style={[styles.filterChip, activeFilter === filter && styles.filterChipActive]}
             onPress={() => onFilter(filter)}
           >
-            <Text style={[styles.filterChipText, activeFilter === filter && styles.filterChipTextActive]}>
+            <Text style={[styles.filterChipText, activeFilter === filter && styles.filterChipTextActive]} numberOfLines={1}>
               {filter}
             </Text>
           </Pressable>
@@ -879,52 +914,55 @@ function FeedScreen({ cards, activeFilter, onFilter, onOpen }) {
           <FeedCard key={card.id} card={card} onPress={onOpen} />
         ))
       ) : (
-        <View style={styles.emptyStateCard}>
-          <Text style={styles.emptyStateTitle}>No updates in this filter yet.</Text>
-          <Text style={styles.emptyStateBody}>Scan, search, or save topics to shape this awareness feed.</Text>
-        </View>
+        <EmptyState
+          title="No updates in this filter"
+          body="Scan, search, or save topics to shape this awareness feed."
+        />
       )}
       <GuardrailNote />
-    </ScrollView>
+    </ScreenScroll>
   );
 }
 
 function ProfileScreen() {
   return (
-    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.screenScroll}>
+    <ScreenScroll>
       <ScreenHeader title="Profile" subtitle="Your Wellumi settings and preferences." />
       <View style={styles.profileCard}>
         <View style={styles.profileSummaryRow}>
           <View style={styles.largeProfileBubble}>
-            <Icon name="profile" color={colors.greenDark} size={34} />
+            <Icon name="profile" color={colors.greenDark} size={32} />
           </View>
           <View style={styles.profileSummaryText}>
-            <Text style={styles.profileName}>Wellumi Explorer</Text>
-            <Text style={styles.profileCaption}>Local MVP profile</Text>
+            <Text style={styles.profileName}>Wellumi member</Text>
+            <Text style={styles.profileCaption}>Personalized on this device</Text>
           </View>
         </View>
       </View>
       <InfoCard title="Interests" body="Label literacy, saved topics, and source-backed context." />
       <InfoCard title="Preferences" body="Plain-language summaries with conservative wording." />
-      <InfoCard title="Data & privacy" body="Local MVP state only. No account or database connection yet." />
-    </ScrollView>
+      <InfoCard title="Data & privacy" body="Your scans and saves stay on this device for now." />
+    </ScreenScroll>
   );
 }
 
-function ActionTile({ width, title, body, icon, dark, onPress }) {
+function ActionTile({ title, body, icon, dark, onPress }) {
   return (
     <Pressable
       style={({ pressed }) => [
         styles.actionTile,
-        { width },
         dark && styles.actionTileDark,
         pressed && styles.pressed,
       ]}
       onPress={onPress}
     >
-      <Icon name={icon} color={dark ? '#FFFFFF' : colors.green} size={42} />
-      <Text style={[styles.tileTitle, dark && styles.lightText]} numberOfLines={1}>{title}</Text>
-      <Text style={[styles.tileBody, dark && styles.lightBody]} numberOfLines={1}>{body}</Text>
+      <Icon name={icon} color={dark ? colors.white : colors.green} size={36} />
+      <Text style={[styles.tileTitle, dark && styles.lightText]} numberOfLines={2}>
+        {title}
+      </Text>
+      <Text style={[styles.tileBody, dark && styles.lightBody]} numberOfLines={2}>
+        {body}
+      </Text>
     </Pressable>
   );
 }
@@ -932,13 +970,13 @@ function ActionTile({ width, title, body, icon, dark, onPress }) {
 function SearchBox({ value, onChangeText, onSubmit }) {
   return (
     <View style={styles.searchWrap}>
-      <Icon name="search" color="#555B58" size={33} />
+      <Icon name="search" color={colors.muted} size={22} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
         onSubmitEditing={onSubmit}
         placeholder="Search ingredient, product, or claim"
-        placeholderTextColor="#767B7A"
+        placeholderTextColor={colors.mutedLight}
         returnKeyType="search"
         style={styles.searchInput}
       />
@@ -951,10 +989,13 @@ function ScanMiniCard({ item, onPress }) {
     <Pressable style={({ pressed }) => [styles.scanMiniCard, pressed && styles.pressed]} onPress={onPress}>
       <ProductBottle item={item} />
       <View style={styles.scanMiniText}>
-        <Text style={styles.scanMiniTitle} numberOfLines={2} ellipsizeMode="tail">{item.title}</Text>
+        <Text style={styles.scanMiniTitle} numberOfLines={2}>{item.title}</Text>
         <View style={styles.scannedRow}>
           <View style={styles.scannedDot} />
-          <Text style={styles.scannedText}>{item.subtitle || 'Scanned'}{item.time ? `\n${item.time}` : ''}</Text>
+          <Text style={styles.scannedText} numberOfLines={2}>
+            {item.subtitle || 'Scanned'}
+            {item.time ? ` · ${item.time}` : ''}
+          </Text>
         </View>
       </View>
     </Pressable>
@@ -976,25 +1017,23 @@ function FeedCard({ card, onPress }) {
   return (
     <Pressable style={({ pressed }) => [styles.feedCard, pressed && styles.pressed]} onPress={onPress}>
       <View style={styles.updateMarker}>
-        <Text style={styles.updateMarkerText}>{card.updateType}</Text>
+        <Text style={styles.updateMarkerText} numberOfLines={3}>{card.updateType}</Text>
       </View>
       <View style={styles.feedCopy}>
         <View style={styles.feedTopLine}>
           <Text style={styles.feedReason} numberOfLines={1}>{card.reasonLabel}</Text>
-          <Text style={styles.feedDate}>{card.date}</Text>
+          <Text style={styles.feedDate} numberOfLines={1}>{card.date}</Text>
         </View>
-        <Text style={styles.feedTitle} numberOfLines={2} ellipsizeMode="tail">{card.title}</Text>
+        <Text style={styles.feedTitle} numberOfLines={2}>{card.title}</Text>
         <Text style={styles.feedBody} numberOfLines={2}>{card.summary || card.body}</Text>
-        <View style={styles.feedPill}>
-          <Icon name="doc" color={colors.green} size={16} />
-          <Text style={styles.feedPillText}>{card.sourceLabel}</Text>
-        </View>
-        <View style={styles.feedMetaRow}>
-          <Text style={styles.feedTag}>{card.tag}</Text>
-          <Text style={styles.feedCta}>{card.cta}</Text>
+        <View style={styles.feedFooter}>
+          <View style={styles.feedPill}>
+            <Icon name="doc" color={colors.green} size={14} />
+            <Text style={styles.feedPillText} numberOfLines={1}>{card.sourceLabel}</Text>
+          </View>
+          <Text style={styles.feedCta} numberOfLines={1}>{card.cta} ›</Text>
         </View>
       </View>
-      <Text style={styles.feedArrow}>›</Text>
     </Pressable>
   );
 }
@@ -1018,20 +1057,33 @@ function InfoCard({ title, body, compact }) {
   );
 }
 
-function ScreenHeader({ title, subtitle }) {
+function EmptyState({ title, body }) {
   return (
-    <View style={styles.screenHeader}>
-      <Text style={styles.screenTitle}>{title}</Text>
-      <Text style={styles.screenSubtitle}>{subtitle}</Text>
+    <View style={styles.emptyStateCard}>
+      <Text style={styles.emptyStateTitle}>{title}</Text>
+      <Text style={styles.emptyStateBody}>{body}</Text>
     </View>
   );
 }
 
-function SectionTitle({ title, action }) {
+function ScreenHeader({ title, subtitle }) {
+  return (
+    <View style={styles.screenHeader}>
+      <Text style={styles.screenTitle}>{title}</Text>
+      {!!subtitle && <Text style={styles.screenSubtitle}>{subtitle}</Text>}
+    </View>
+  );
+}
+
+function SectionTitle({ title, action, onAction }) {
   return (
     <View style={styles.sectionTitle}>
       <Text style={styles.sectionHeading}>{title}</Text>
-      <Text style={styles.sectionAction}>{action}</Text>
+      {!!action && (
+        <Pressable onPress={onAction} hitSlop={8} disabled={!onAction}>
+          <Text style={[styles.sectionAction, !onAction && styles.sectionActionMuted]}>{action}</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -1047,7 +1099,23 @@ function PrimaryButton({ title, onPress, disabled }) {
       onPress={onPress}
       disabled={disabled}
     >
-      <Text style={styles.primaryButtonText}>{title}</Text>
+      <Text style={[styles.primaryButtonText, disabled && styles.primaryButtonTextDisabled]}>{title}</Text>
+    </Pressable>
+  );
+}
+
+function SecondaryButton({ title, onPress, disabled }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.secondaryButton,
+        disabled && styles.disabledButton,
+        pressed && !disabled && styles.pressed,
+      ]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Text style={styles.secondaryButtonText}>{title}</Text>
     </Pressable>
   );
 }
@@ -1076,9 +1144,13 @@ function BottomTabs({ activeTab, onTab }) {
             onPress={() => onTab(target)}
           >
             <View style={[tab.center ? styles.centerTab : styles.tabIconWrap, active && !tab.center && styles.tabActive]}>
-              <Icon name={tab.icon} color={tab.center ? '#FFFFFF' : active ? colors.green : '#5B6060'} size={tab.center ? 30 : 22} />
+              <Icon name={tab.icon} color={tab.center ? colors.white : active ? colors.green : colors.tabInactive} size={tab.center ? 28 : 22} />
             </View>
-            {!!tab.label && <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>}
+            {!!tab.label && (
+              <Text style={[styles.tabLabel, active && styles.tabLabelActive]} numberOfLines={1}>
+                {tab.label}
+              </Text>
+            )}
           </Pressable>
         );
       })}
@@ -1175,30 +1247,61 @@ function Icon({ name, color, size }) {
 
 const cardShadow = {
   shadowColor: colors.shadow,
-  shadowOffset: { width: 0, height: 5 },
-  shadowOpacity: 0.055,
-  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.06,
+  shadowRadius: 10,
   elevation: 3,
 };
+
+const cardBase = {
+  backgroundColor: colors.card,
+  borderWidth: 1,
+  borderColor: colors.line,
+  ...cardShadow,
+};
+
+function BrandLeaf({ style }) {
+  return <View style={[styles.brandLeaf, style]} />;
+}
+
+function ScreenScroll({ children, style, contentStyle }) {
+  return (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      style={style}
+      contentContainerStyle={[styles.screenScroll, contentStyle]}
+    >
+      {children}
+    </ScrollView>
+  );
+}
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: colors.cream },
   content: { flex: 1 },
+  brandLeaf: {
+    width: 10,
+    height: 18,
+    borderTopLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    backgroundColor: colors.greenMuted,
+    transform: [{ rotate: '38deg' }],
+  },
   splashScreen: {
     flex: 1,
     backgroundColor: colors.cream,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: spacing.xxxl,
   },
   splashMark: {
     width: 76,
     height: 76,
-    borderRadius: 28,
+    borderRadius: radii.xxl,
     backgroundColor: colors.greenSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 18,
+    marginBottom: spacing.lg + 2,
   },
   splashLeaf: {
     color: colors.greenDark,
@@ -1211,210 +1314,223 @@ const styles = StyleSheet.create({
   },
   splashBrand: {
     color: colors.greenDark,
-    fontSize: 38,
-    lineHeight: 44,
-    fontWeight: '800',
-    letterSpacing: 0,
+    ...typography.displaySm,
   },
   splashAccentLeaf: {
-    width: 10,
-    height: 18,
-    borderTopLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    backgroundColor: '#B8C8AD',
-    transform: [{ rotate: '38deg' }],
-    marginLeft: 6,
+    marginLeft: spacing.sm - 2,
     marginTop: -10,
   },
   splashLine: {
     color: colors.muted,
-    fontSize: 16,
-    lineHeight: 23,
-    marginTop: 8,
+    ...typography.body,
+    marginTop: spacing.sm,
     textAlign: 'center',
+    maxWidth: 280,
   },
-  homeScroll: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 142 },
-  screenScroll: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 148 },
-  resultScroll: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 156 },
+  homeScroll: {
+    paddingHorizontal: layout.screenPaddingX,
+    paddingTop: layout.screenPaddingTop,
+    paddingBottom: layout.screenPaddingBottom,
+    width: '100%',
+    maxWidth: layout.contentMaxWidth,
+    alignSelf: 'center',
+  },
+  screenScroll: {
+    paddingHorizontal: layout.screenPaddingX,
+    paddingTop: layout.screenPaddingTop + spacing.sm,
+    paddingBottom: layout.screenPaddingBottom,
+    width: '100%',
+    maxWidth: layout.contentMaxWidth,
+    alignSelf: 'center',
+  },
+  resultScroll: {
+    paddingHorizontal: layout.screenPaddingX,
+    paddingTop: spacing.sm,
+    paddingBottom: layout.screenPaddingBottom + spacing.sm,
+    width: '100%',
+    maxWidth: layout.contentMaxWidth,
+    alignSelf: 'center',
+  },
   topRow: {
-    position: 'relative',
-    marginBottom: 18,
-    minHeight: 88,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: layout.sectionGap,
+    gap: spacing.md,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: spacing.sm,
   },
   heroTitle: {
     color: colors.greenDark,
-    fontSize: 40,
-    lineHeight: 44,
+    fontSize: 34,
+    lineHeight: 40,
     fontWeight: '800',
-    letterSpacing: 0,
+    letterSpacing: -0.3,
   },
-  brandRow: { flexDirection: 'row', alignItems: 'center', marginTop: -2 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.xs },
   heroBrand: {
     color: colors.greenDark,
-    fontSize: 28,
-    lineHeight: 32,
-    fontWeight: '800',
-    letterSpacing: 0,
+    ...typography.title,
   },
   tinyLeaf: {
-    width: 10,
-    height: 18,
-    borderTopLeftRadius: 12,
-    borderBottomRightRadius: 12,
-    backgroundColor: '#B8C8AD',
-    transform: [{ rotate: '38deg' }],
-    marginLeft: 5,
-    marginTop: -8,
+    marginLeft: spacing.sm - 3,
+    marginTop: -6,
   },
   headerActions: {
-    position: 'absolute',
-    right: 0,
-    top: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 13,
+    gap: spacing.md - 3,
+    flexShrink: 0,
+    paddingTop: spacing.xs,
   },
-  bellButton: { width: 38, height: 48, alignItems: 'center', justifyContent: 'center' },
+  bellButton: { width: 38, height: 44, alignItems: 'center', justifyContent: 'center' },
   notificationDot: {
     position: 'absolute',
     right: 2,
-    top: 9,
-    width: 13,
-    height: 13,
-    borderRadius: 999,
+    top: 8,
+    width: 11,
+    height: 11,
+    borderRadius: radii.pill,
     backgroundColor: colors.green,
     borderWidth: 2,
     borderColor: colors.cream,
   },
   profileBubble: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#EEF0E8',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionRow: { flexDirection: 'row', gap: 8, marginBottom: 18 },
+  actionRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: layout.sectionGap },
   actionTile: {
-    minHeight: 108,
-    borderRadius: 18,
+    flex: 1,
+    minWidth: 0,
+    minHeight: 112,
+    borderRadius: radii.lg - 2,
+    ...cardBase,
     backgroundColor: colors.cardSoft,
-    borderWidth: 1,
-    borderColor: colors.line,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
-    ...cardShadow,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.md,
   },
   actionTileDark: { backgroundColor: colors.green, borderColor: colors.green },
   tileTitle: {
     color: colors.greenDark,
-    fontSize: 15,
+    ...typography.caption,
     fontWeight: '800',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
   tileBody: {
-    color: colors.greenDark,
-    fontSize: 12,
-    lineHeight: 16,
+    color: colors.muted,
+    ...typography.label,
+    fontWeight: '600',
     textAlign: 'center',
-    marginTop: 6,
+    marginTop: spacing.xs,
   },
-  lightText: { color: '#FFFFFF' },
-  lightBody: { color: '#F3F6EE' },
+  lightText: { color: colors.white },
+  lightBody: { color: colors.heroText },
   searchWrap: {
-    minHeight: 56,
-    borderRadius: 20,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
+    minHeight: 52,
+    borderRadius: radii.lg,
+    ...cardBase,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 17,
-    marginBottom: 22,
-    ...cardShadow,
+    paddingHorizontal: spacing.lg - 1,
+    marginBottom: layout.sectionGap + 2,
   },
-  searchInput: { flex: 1, minHeight: 52, marginLeft: 12, color: colors.ink, fontSize: 16 },
+  searchInput: {
+    flex: 1,
+    minHeight: 48,
+    marginLeft: spacing.md,
+    color: colors.ink,
+    ...typography.body,
+    paddingVertical: spacing.sm,
+  },
   sectionTitle: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: spacing.md,
+    gap: spacing.md,
   },
-  sectionHeading: { color: colors.greenDark, fontSize: 22, fontWeight: '800', letterSpacing: 0, flex: 1, paddingRight: 12 },
-  sectionAction: { color: colors.green, fontSize: 14, fontWeight: '700', flexShrink: 0 },
-  edgeCarousel: { marginHorizontal: -18, paddingLeft: 18, paddingRight: 18, marginBottom: 24 },
+  sectionHeading: {
+    color: colors.greenDark,
+    ...typography.title,
+    flex: 1,
+    minWidth: 0,
+  },
+  sectionAction: { color: colors.green, ...typography.caption, fontWeight: '700', flexShrink: 0 },
+  sectionActionMuted: { color: colors.mutedLight },
+  edgeCarousel: { marginHorizontal: -layout.screenPaddingX, paddingLeft: layout.screenPaddingX, paddingRight: layout.screenPaddingX, marginBottom: layout.sectionGap + spacing.xs },
   scanMiniCard: {
-    width: 180,
-    minHeight: 96,
-    borderRadius: 16,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
+    width: 188,
+    minHeight: 100,
+    borderRadius: radii.md,
+    ...cardBase,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 11,
-    marginRight: 13,
-    ...cardShadow,
+    padding: spacing.md - 1,
+    marginRight: spacing.md - 1,
   },
   productPad: {
-    width: 56,
-    height: 66,
-    borderRadius: 12,
+    width: 52,
+    height: 62,
+    borderRadius: radii.sm,
     backgroundColor: '#F4F0E8',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 13,
+    marginRight: spacing.md - 1,
+    flexShrink: 0,
   },
-  bottleCap: { width: 26, height: 8, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
-  bottle: { width: 34, height: 46, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  bottleLabel: { width: 27, height: 20, borderRadius: 4, borderWidth: 2, borderColor: '#FFFFFF' },
-  scanMiniText: { flex: 1 },
-  scanMiniTitle: { color: '#0F1614', fontSize: 15, lineHeight: 18, fontWeight: '700' },
-  scannedRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 7 },
-  scannedDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: colors.green, marginTop: 4, marginRight: 6 },
-  scannedText: { color: colors.muted, fontSize: 12, lineHeight: 15 },
+  bottleCap: { width: 24, height: 8, borderTopLeftRadius: 5, borderTopRightRadius: 5 },
+  bottle: { width: 32, height: 44, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  bottleLabel: { width: 25, height: 18, borderRadius: 4, borderWidth: 2, borderColor: colors.white },
+  scanMiniText: { flex: 1, minWidth: 0 },
+  scanMiniTitle: { color: colors.ink, ...typography.bodyStrong, fontSize: 14, lineHeight: 18 },
+  scannedRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm - 1 },
+  scannedDot: { width: 7, height: 7, borderRadius: radii.pill, backgroundColor: colors.green, marginRight: spacing.sm - 2, flexShrink: 0 },
+  scannedText: { color: colors.muted, ...typography.label, fontWeight: '600', flex: 1 },
   emptyMiniCard: {
-    width: 220,
-    minHeight: 96,
-    borderRadius: 18,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 14,
-    marginRight: 13,
+    width: 232,
+    minHeight: 100,
+    borderRadius: radii.lg - 2,
+    ...cardBase,
+    padding: spacing.lg - 2,
+    marginRight: spacing.md - 1,
     justifyContent: 'center',
   },
-  emptyMiniTitle: { color: colors.greenDark, fontSize: 16, fontWeight: '800' },
-  emptyMiniBody: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 4 },
+  emptyMiniTitle: { color: colors.greenDark, ...typography.bodyStrong, fontWeight: '800' },
+  emptyMiniBody: { color: colors.muted, ...typography.caption, marginTop: spacing.xs },
   feedCard: {
-    minHeight: 106,
-    borderRadius: 16,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderRadius: radii.md,
+    ...cardBase,
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    marginBottom: 10,
+    alignItems: 'stretch',
+    padding: spacing.md - 1,
+    marginBottom: layout.cardGap,
     overflow: 'hidden',
-    ...cardShadow,
   },
   updateMarker: {
-    width: 62,
-    minHeight: 76,
-    borderRadius: 12,
+    width: 68,
+    borderRadius: radii.sm,
     backgroundColor: colors.greenSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
-    marginRight: 12,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    marginRight: spacing.md,
+    flexShrink: 0,
   },
   updateMarkerText: {
     color: colors.green,
-    fontSize: 10,
-    lineHeight: 14,
+    ...typography.micro,
     fontWeight: '800',
     textAlign: 'center',
   },
@@ -1448,110 +1564,84 @@ const styles = StyleSheet.create({
     opacity: 0.45,
     transform: [{ rotate: '12deg' }],
   },
-  feedCopy: { flex: 1 },
+  feedCopy: { flex: 1, minWidth: 0 },
   feedTopLine: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
   },
   feedReason: {
     color: colors.green,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '800',
-    marginBottom: 3,
+    ...typography.label,
     flex: 1,
+    minWidth: 0,
   },
-  feedDate: { color: colors.muted, fontSize: 10, fontWeight: '800', marginBottom: 3 },
-  feedTitle: { color: colors.greenDark, fontSize: 16, lineHeight: 20, fontWeight: '800' },
-  feedBody: { color: '#6D6C6A', fontSize: 12, lineHeight: 16, marginTop: 3 },
-  feedPill: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.greenSoft,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    marginTop: 7,
-    gap: 7,
-  },
-  feedPillText: { color: colors.green, fontSize: 11, fontWeight: '700' },
-  feedMetaRow: {
+  feedDate: { color: colors.mutedLight, ...typography.micro, flexShrink: 0 },
+  feedTitle: { color: colors.greenDark, ...typography.bodyStrong, fontSize: 16, lineHeight: 21 },
+  feedBody: { color: colors.muted, ...typography.caption, fontSize: 12, lineHeight: 17, marginTop: spacing.xs },
+  feedFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 7,
-    gap: 8,
+    gap: spacing.sm,
+    marginTop: spacing.sm,
   },
-  feedTag: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
+  feedPill: {
     flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.greenSoft,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 1,
+    gap: spacing.sm - 2,
   },
-  feedCta: { color: colors.green, fontSize: 12, fontWeight: '800' },
-  filterRow: { marginHorizontal: -20, paddingHorizontal: 20, marginBottom: 14 },
+  feedPillText: { color: colors.green, ...typography.label, fontWeight: '700', flex: 1 },
+  feedCta: { color: colors.green, ...typography.caption, fontWeight: '800', flexShrink: 0 },
+  filterRow: { marginHorizontal: -layout.screenPaddingX, marginBottom: spacing.lg - 2 },
+  filterRowContent: { paddingHorizontal: layout.screenPaddingX, gap: spacing.sm },
   filterChip: {
-    borderRadius: 999,
+    borderRadius: radii.pill,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.card,
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    marginRight: 8,
+    paddingHorizontal: spacing.md + 1,
+    paddingVertical: spacing.sm,
   },
   filterChipActive: {
     backgroundColor: colors.green,
     borderColor: colors.green,
   },
-  filterChipText: { color: colors.muted, fontSize: 13, fontWeight: '800' },
-  filterChipTextActive: { color: '#FFFFFF' },
-  feedArrow: { color: colors.green, fontSize: 24, fontWeight: '300', paddingLeft: 6 },
-  screenHeader: { marginBottom: 18 },
-  screenTitle: { color: colors.greenDark, fontSize: 34, lineHeight: 40, fontWeight: '800', letterSpacing: 0 },
-  screenSubtitle: { color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 6 },
+  filterChipText: { color: colors.muted, ...typography.caption, fontWeight: '800' },
+  filterChipTextActive: { color: colors.white },
+  screenHeader: { marginBottom: layout.sectionGap - 2 },
+  screenTitle: { color: colors.greenDark, ...typography.display },
+  screenSubtitle: { color: colors.muted, ...typography.body, marginTop: spacing.sm - 2 },
   cameraShell: {
     flex: 1,
     backgroundColor: colors.cream,
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 20,
+    paddingHorizontal: layout.screenPaddingX,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
   },
   cameraHeader: {
-    marginBottom: 16,
+    marginBottom: spacing.lg,
   },
   cameraTitle: {
     color: colors.greenDark,
-    fontSize: 34,
-    lineHeight: 40,
-    fontWeight: '800',
-    letterSpacing: 0,
+    ...typography.display,
   },
   cameraSubtitle: {
     color: colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 4,
-  },
-  debugLine: {
-    color: colors.green,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 6,
-  },
-  debugLineLight: {
-    color: colors.greenDark,
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: 'center',
-    marginBottom: 8,
+    ...typography.body,
+    marginTop: spacing.xs,
   },
   cameraPreview: {
     flex: 1,
-    borderRadius: 24,
+    borderRadius: radii.xl,
     overflow: 'hidden',
     backgroundColor: colors.greenDark,
     ...cardShadow,
@@ -1559,30 +1649,29 @@ const styles = StyleSheet.create({
   cameraOverlay: {
     flex: 1,
     justifyContent: 'space-between',
-    padding: 18,
+    padding: spacing.lg - 2,
     backgroundColor: 'rgba(0,0,0,0.08)',
   },
   cameraBackButton: {
     alignSelf: 'flex-start',
-    paddingVertical: 10,
-    paddingRight: 16,
-    marginBottom: 10,
+    paddingVertical: spacing.sm + 2,
+    paddingRight: spacing.lg,
+    marginBottom: spacing.sm + 2,
   },
   cameraBackText: {
     color: colors.green,
-    fontSize: 17,
-    fontWeight: '800',
+    ...typography.headline,
   },
   cameraBackButtonDark: {
     alignSelf: 'flex-start',
-    borderRadius: 999,
+    borderRadius: radii.pill,
     backgroundColor: 'rgba(0,0,0,0.34)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
   },
   cameraBackTextDark: {
-    color: '#FFFFFF',
-    fontSize: 16,
+    color: colors.white,
+    ...typography.bodyStrong,
     fontWeight: '800',
   },
   cameraGuide: {
@@ -1590,101 +1679,92 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cameraGuideCorner: {
-    width: 210,
-    height: 210,
-    borderRadius: 28,
-    borderWidth: 4,
-    borderColor: '#FFFFFF',
+    borderRadius: radii.xxl,
+    borderWidth: 3,
+    borderColor: colors.white,
     opacity: 0.92,
   },
   cameraGuideText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 16,
+    color: colors.white,
+    ...typography.headline,
+    marginTop: spacing.lg,
+    textAlign: 'center',
     textShadowColor: 'rgba(0,0,0,0.35)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 6,
+    paddingHorizontal: spacing.xl,
   },
   capturePanel: {
-    borderRadius: 20,
+    borderRadius: radii.lg,
     backgroundColor: 'rgba(255,253,248,0.96)',
-    padding: 14,
+    padding: spacing.md + 2,
     ...cardShadow,
   },
   captureButton: {
-    minHeight: 58,
-    borderRadius: 20,
+    minHeight: 54,
+    borderRadius: radii.lg,
     backgroundColor: colors.green,
     alignItems: 'center',
     justifyContent: 'center',
   },
   captureButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
+    color: colors.white,
+    ...typography.button,
+    fontSize: 17,
   },
   disabledButton: {
     opacity: 0.62,
   },
   permissionCard: {
     flex: 1,
-    borderRadius: 32,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderRadius: radii.xxl,
+    ...cardBase,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
-    ...cardShadow,
+    padding: spacing.xxl,
   },
   permissionTitle: {
     color: colors.greenDark,
-    fontSize: 28,
-    fontWeight: '800',
+    ...typography.displaySm,
     textAlign: 'center',
-    marginTop: 18,
+    marginTop: spacing.lg + 2,
   },
   permissionBody: {
     color: colors.muted,
-    fontSize: 17,
-    lineHeight: 24,
+    ...typography.body,
     textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 18,
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg + 2,
+    maxWidth: 300,
   },
   photoPreview: {
     flex: 1,
-    borderRadius: 24,
+    borderRadius: radii.xl,
     backgroundColor: colors.greenDark,
-    marginBottom: 16,
+    marginBottom: spacing.lg,
     ...cardShadow,
   },
   analysisError: {
     color: colors.greenDark,
-    backgroundColor: '#F1EBDD',
-    borderRadius: 18,
-    padding: 12,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
+    backgroundColor: colors.surfaceWarm,
+    borderRadius: radii.lg - 2,
+    padding: spacing.md,
+    ...typography.caption,
+    marginBottom: spacing.md,
   },
   cameraActions: {
-    gap: 10,
+    gap: spacing.sm + 2,
   },
   secondaryButton: {
-    minHeight: 52,
-    borderRadius: 18,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
+    minHeight: 50,
+    borderRadius: radii.lg - 2,
+    ...cardBase,
     alignItems: 'center',
     justifyContent: 'center',
   },
   secondaryButtonText: {
     color: colors.green,
-    fontSize: 16,
-    fontWeight: '800',
+    ...typography.button,
   },
   scanFrame: {
     minHeight: 330,
@@ -1698,162 +1778,161 @@ const styles = StyleSheet.create({
   },
   scanText: { color: '#FFFFFF', fontSize: 25, fontWeight: '800', lineHeight: 31, textAlign: 'center', marginTop: 24 },
   scanFinePrint: { color: '#E8EFE5', fontSize: 16, marginTop: 8 },
-  resultHero: { borderRadius: 20, backgroundColor: colors.greenDark, padding: 16, marginBottom: 10, ...cardShadow },
-  resultTitle: { color: '#FFFFFF', fontSize: 24, fontWeight: '800', lineHeight: 29 },
-  resultBody: { color: '#E7EFE6', fontSize: 13, lineHeight: 18, marginTop: 7 },
-  pill: {
-    alignSelf: 'flex-start',
-    color: colors.green,
-    backgroundColor: colors.greenSoft,
-    borderRadius: 10,
-    overflow: 'hidden',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    fontSize: 12,
-    fontWeight: '800',
-    marginBottom: 10,
-  },
-  infoCard: {
-    borderRadius: 16,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 13,
-    marginBottom: 9,
+  resultHero: {
+    borderRadius: radii.lg,
+    backgroundColor: colors.greenDark,
+    padding: spacing.lg,
+    marginBottom: layout.cardGap,
     ...cardShadow,
   },
-  compactInfoCard: {
-    padding: 12,
-    marginBottom: 9,
+  resultTitle: { color: colors.white, ...typography.displaySm, fontSize: 24, lineHeight: 30 },
+  resultBody: { color: colors.heroText, ...typography.caption, marginTop: spacing.sm - 1 },
+  pill: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.greenSoft,
+    borderRadius: radii.sm - 2,
+    paddingHorizontal: spacing.sm + 1,
+    paddingVertical: spacing.xs + 1,
+    marginBottom: spacing.md - 2,
   },
-  cardTitle: { color: colors.greenDark, fontSize: 16, lineHeight: 22, fontWeight: '800' },
-  cardBody: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  pillText: {
+    color: colors.green,
+    ...typography.label,
+    fontWeight: '800',
+  },
+  infoCard: {
+    borderRadius: radii.md,
+    ...cardBase,
+    padding: spacing.md + 1,
+    marginBottom: layout.cardGap,
+  },
+  compactInfoCard: {
+    padding: spacing.md,
+  },
+  cardTitle: { color: colors.greenDark, ...typography.bodyStrong, fontSize: 16, lineHeight: 22 },
+  cardBody: { color: colors.muted, ...typography.caption, marginTop: spacing.xs },
   compactCardTitle: { fontSize: 15, lineHeight: 20 },
-  compactCardBody: { fontSize: 12, lineHeight: 17, marginTop: 4 },
+  compactCardBody: { fontSize: 12, lineHeight: 17 },
   primaryButton: {
     minHeight: 52,
-    borderRadius: 18,
+    borderRadius: radii.lg - 2,
     backgroundColor: colors.green,
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 8,
+    marginVertical: spacing.sm,
     ...cardShadow,
   },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  guardrail: { borderRadius: 18, backgroundColor: '#F1EBDD', padding: 13, marginTop: 8 },
-  guardrailTitle: { color: colors.greenDark, fontSize: 14, fontWeight: '800' },
-  guardrailText: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  primaryButtonText: { color: colors.white, ...typography.button },
+  primaryButtonTextDisabled: { color: colors.heroText },
+  guardrail: {
+    borderRadius: radii.lg - 2,
+    backgroundColor: colors.surfaceWarm,
+    padding: spacing.md + 1,
+    marginTop: spacing.sm,
+  },
+  guardrailTitle: { color: colors.greenDark, ...typography.caption, fontWeight: '800' },
+  guardrailText: { color: colors.muted, ...typography.caption, fontSize: 12, lineHeight: 18, marginTop: spacing.xs + 1 },
   listRow: {
-    minHeight: 74,
-    borderRadius: 18,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 14,
-    marginBottom: 10,
+    minHeight: 72,
+    borderRadius: radii.lg - 2,
+    ...cardBase,
+    padding: spacing.md + 2,
+    marginBottom: layout.cardGap,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    ...cardShadow,
+    gap: spacing.md,
   },
-  rowTitle: { color: colors.greenDark, fontSize: 17, fontWeight: '800' },
-  rowBody: { color: colors.muted, fontSize: 13, marginTop: 4 },
-  arrow: { color: colors.green, fontSize: 30, marginLeft: 14 },
-  backButton: { alignSelf: 'flex-start', paddingVertical: 8, paddingRight: 14, marginBottom: 8 },
-  backText: { color: colors.green, fontSize: 17, fontWeight: '800' },
+  listRowCopy: { flex: 1, minWidth: 0 },
+  rowTitle: { color: colors.greenDark, ...typography.headline },
+  rowBody: { color: colors.muted, ...typography.caption, marginTop: spacing.xs },
+  arrow: { color: colors.green, fontSize: 26, flexShrink: 0 },
+  backButton: { alignSelf: 'flex-start', paddingVertical: spacing.sm, paddingRight: spacing.md - 2, marginBottom: spacing.sm },
+  backText: { color: colors.green, ...typography.headline },
   libraryCard: {
-    minHeight: 92,
-    borderRadius: 18,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 13,
-    marginBottom: 10,
+    minHeight: 88,
+    borderRadius: radii.lg - 2,
+    ...cardBase,
+    padding: spacing.md + 1,
+    marginBottom: layout.cardGap,
     flexDirection: 'row',
     alignItems: 'center',
-    ...cardShadow,
+    gap: spacing.md,
   },
-  libraryText: { flex: 1 },
+  libraryText: { flex: 1, minWidth: 0 },
   libraryTypeBadge: {
-    minWidth: 52,
-    borderRadius: 999,
+    maxWidth: 72,
+    borderRadius: radii.pill,
     backgroundColor: colors.greenSoft,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: spacing.sm - 2,
     alignItems: 'center',
-    marginRight: 12,
+    flexShrink: 0,
   },
-  libraryTypeText: { color: colors.green, fontSize: 12, fontWeight: '800' },
-  libraryTitle: { color: colors.greenDark, fontSize: 18, lineHeight: 23, fontWeight: '800' },
-  libraryDescription: { color: colors.muted, fontSize: 13, lineHeight: 18, marginTop: 3 },
-  librarySavedAt: { color: colors.green, fontSize: 12, fontWeight: '800', marginTop: 6 },
+  libraryTypeText: { color: colors.green, ...typography.label, fontWeight: '800' },
+  libraryTitle: { color: colors.greenDark, ...typography.headline, fontSize: 18, lineHeight: 24 },
+  libraryDescription: { color: colors.muted, ...typography.caption, marginTop: spacing.xs - 1 },
+  librarySavedAt: { color: colors.green, ...typography.label, marginTop: spacing.sm - 2 },
   emptyStateCard: {
-    borderRadius: 20,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 20,
-    ...cardShadow,
+    borderRadius: radii.lg,
+    ...cardBase,
+    padding: spacing.xl,
   },
-  emptyStateTitle: { color: colors.greenDark, fontSize: 22, fontWeight: '800' },
-  emptyStateBody: { color: colors.muted, fontSize: 15, lineHeight: 22, marginTop: 6 },
+  emptyStateTitle: { color: colors.greenDark, ...typography.title },
+  emptyStateBody: { color: colors.muted, ...typography.body, marginTop: spacing.sm - 2 },
   profileCard: {
-    borderRadius: 18,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    padding: 16,
-    marginBottom: 12,
-    ...cardShadow,
+    borderRadius: radii.lg - 2,
+    ...cardBase,
+    padding: spacing.lg,
+    marginBottom: layout.cardGap,
   },
   largeProfileBubble: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#EEF0E8',
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   profileSummaryRow: { flexDirection: 'row', alignItems: 'center' },
-  profileSummaryText: { marginLeft: 14, flex: 1 },
-  profileName: { color: colors.greenDark, fontSize: 21, fontWeight: '800' },
-  profileCaption: { color: colors.muted, fontSize: 13, marginTop: 4 },
+  profileSummaryText: { marginLeft: spacing.md - 2, flex: 1, minWidth: 0 },
+  profileName: { color: colors.greenDark, ...typography.headline, fontSize: 20, lineHeight: 26 },
+  profileCaption: { color: colors.muted, ...typography.caption, marginTop: spacing.xs },
   tabBar: {
     position: 'absolute',
-    left: 14,
-    right: 14,
-    bottom: 12,
-    minHeight: 72,
-    borderRadius: 24,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
+    left: spacing.md + 2,
+    right: spacing.md + 2,
+    bottom: spacing.md,
+    minHeight: 74,
+    borderRadius: radii.xl,
+    ...cardBase,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingHorizontal: 8,
-    ...cardShadow,
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.xs,
   },
-  tabItem: { flex: 1, minHeight: 58, alignItems: 'center', justifyContent: 'center' },
-  centerTabWrap: { marginTop: -34 },
+  tabItem: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', minWidth: 0 },
+  centerTabWrap: { marginTop: -30 },
   centerTab: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: colors.green,
-    borderWidth: 5,
+    borderWidth: 4,
     borderColor: colors.cream,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.14,
-    shadowRadius: 14,
+    shadowRadius: 12,
     elevation: 8,
   },
-  tabIconWrap: { height: 27, alignItems: 'center', justifyContent: 'center', marginBottom: 3 },
-  tabActive: { transform: [{ scale: 1.04 }] },
-  tabLabel: { color: '#5B6060', fontSize: 11, fontWeight: '600' },
+  tabIconWrap: { height: 26, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  tabActive: { transform: [{ scale: 1.03 }] },
+  tabLabel: { color: colors.tabInactive, ...typography.micro, fontWeight: '600' },
   tabLabelActive: { color: colors.green, fontWeight: '800' },
   pressed: { opacity: 0.78 },
   bellIcon: { width: 30, height: 34, alignItems: 'center' },
@@ -1861,14 +1940,14 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderWidth: 2.5,
-    borderColor: '#5B6060',
+    borderColor: colors.tabInactive,
     borderTopLeftRadius: 15,
     borderTopRightRadius: 15,
     borderBottomWidth: 0,
     marginTop: 2,
   },
-  bellBase: { width: 30, height: 9, borderBottomWidth: 2.5, borderColor: '#5B6060', borderRadius: 8, marginTop: -4 },
-  bellClapper: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#5B6060', marginTop: 1 },
+  bellBase: { width: 30, height: 9, borderBottomWidth: 2.5, borderColor: colors.tabInactive, borderRadius: 8, marginTop: -4 },
+  bellClapper: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.tabInactive, marginTop: 1 },
   searchCircle: { position: 'absolute', left: 0, top: 0, borderWidth: 3 },
   searchHandle: { position: 'absolute', height: 3, borderRadius: 3, transform: [{ rotate: '45deg' }] },
   scanIconCorner: { position: 'absolute', borderRadius: 5 },
